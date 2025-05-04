@@ -1,0 +1,69 @@
+// Food Expiry Tracker - AI Coding Assistant Rules
+
+// Project Overview
+This is a React Native mobile application using Expo for food expiry tracking.
+The app helps users track expiration dates of food items through barcode scanning.
+Uses Firebase for backend storage and authentication.
+
+// Technology Stack
+- React Native with Expo
+- TypeScript for type safety
+- Firebase for data storage (Firestore)
+- React Navigation for routing (Expo Router)
+- React Native Paper for UI components
+- Expo Camera for barcode scanning
+- Expo Calendar for expiry date integration
+- Expo Notifications for reminders
+
+// Folder Structure
+/app - Main application screens using Expo Router
+/components - Reusable React components
+/hooks - Custom React hooks
+/utils - Utility functions
+/services - API and service functions
+/assets - Images, icons, and other static assets
+
+// Code Style Guidelines
+- Use functional components with hooks
+- Use TypeScript interfaces for props and state
+- Prefer const over let when variables don't need to be reassigned
+- Use async/await for asynchronous operations
+- Follow React Native Paper design guidelines
+- Use meaningful variable and function names
+- Add JSDoc comments for functions
+
+// Database Structure (Firestore)
+- users: User profile information
+- products: Food items with expiry dates
+  - id: String (barcode)
+  - name: String
+  - expiryDate: String (YYYY-MM-DD)
+  - category: String
+  - imageUrl: String (optional)
+  - quantity: Number
+  - calendarEventId: String (for calendar integration)
+  - addedAt: Timestamp
+
+// Key Features
+- Barcode scanning for individual products
+- Receipt scanning for multiple products
+- Calendar view for expiry dates
+- Notification system for upcoming expiries
+- Categories and filtering
+- Search functionality
+- Data management (backup, import, export)
+
+// Common Tasks
+- Firebase queries should include error handling
+- Camera permissions must be requested before using
+- Calendar integration requires proper permissions
+- Use context for global state management
+- Implement proper loading states
+- Handle network connectivity issues gracefully
+
+// Important Notes
+- The app uses Firebase for authentication and data storage
+- Calendar integration uses the Expo Calendar API
+- Notifications are handled via Expo Notifications
+- Barcode scanning supports multiple formats
+- The UI follows Material Design principles 
