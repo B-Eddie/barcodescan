@@ -11,6 +11,8 @@ import {
   where,
   deleteDoc,
   doc,
+  QuerySnapshot,
+  DocumentData,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
@@ -107,14 +109,24 @@ export default function HomeScreen() {
       const sevenDaysAgo = new Date(today);
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      // Query all products, including recently expired ones
+      // Add a timeout to the Firebase query
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Firebase query timeout')), 10000)
+      );
+
+      // Query all products with limit for better performance
       const q = query(
         productsRef,
         where("expiryDate", ">=", sevenDaysAgo.toISOString().split("T")[0]),
         orderBy("expiryDate", "asc")
       );
 
-      const querySnapshot = await getDocs(q);
+      // Race the query with a timeout
+      const querySnapshot = await Promise.race([
+        getDocs(q),
+        timeoutPromise
+      ]) as QuerySnapshot<DocumentData>;
+
       const products: ExpiryItem[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -138,7 +150,16 @@ export default function HomeScreen() {
       setUpcomingItems(products);
     } catch (error) {
       console.error("Error fetching upcoming items:", error);
-      Alert.alert("Error", "Failed to load your food items");
+      
+      // More specific error handling
+      if (error instanceof Error && error.message === 'Firebase query timeout') {
+        Alert.alert(
+          "Connection Issue", 
+          "The database request timed out. Please check your internet connection and try again."
+        );
+      } else {
+        Alert.alert("Error", "Failed to load your food items");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

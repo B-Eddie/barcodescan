@@ -91,8 +91,14 @@ export default function ReceiptScanScreen() {
 
     try {
       // In a real app, this would connect to a receipt parsing API or OCR service
-      // For demo purposes, we'll simulate receipt parsing with a delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // For demo purposes, we'll simulate receipt parsing with a safer timeout
+      // Use a promise with a race condition to prevent indefinite hanging
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Operation timed out')), 5000)
+        )
+      ]);
 
       // Simulate parsed receipt data
       const mockItems: ReceiptItem[] = [

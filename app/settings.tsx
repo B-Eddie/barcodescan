@@ -38,6 +38,7 @@ import {
   useTheme,
 } from "react-native-paper";
 import { firebaseApp } from "../firebaseConfig";
+import { useAuth } from "../contexts/AuthContext";
 
 // Default notification preferences
 const DEFAULT_NOTIFICATION_PREFS = {
@@ -60,6 +61,7 @@ const DEFAULT_APP_PREFS = {
 export default function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { user, logOut } = useAuth();
   
   // State for notification preferences
   const [notificationPrefs, setNotificationPrefs] = useState(DEFAULT_NOTIFICATION_PREFS);
@@ -307,7 +309,17 @@ export default function SettingsScreen() {
       'Data import functionality will be available in a future update.'
     );
   };
-  
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logOut();
+      // Navigation will be handled by the auth check in _layout.tsx
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
   return (
     <ScrollView style={styles.container}>
       <Surface style={styles.header}>
@@ -558,6 +570,43 @@ export default function SettingsScreen() {
         </Card.Content>
       </Card>
       
+      <Card style={styles.card}>
+        <Card.Content>
+          <Text variant="titleMedium" style={styles.sectionTitle}>
+            Account
+          </Text>
+          
+          {user && (
+            <View style={styles.accountInfo}>
+              <MaterialCommunityIcons
+                name="account-circle"
+                size={40}
+                color={theme.colors.primary}
+              />
+              <View style={styles.accountTextInfo}>
+                <Text variant="titleMedium">{user.displayName || 'User'}</Text>
+                <Text variant="bodySmall" style={styles.emailText}>
+                  {user.email}
+                </Text>
+              </View>
+            </View>
+          )}
+          
+          <Divider style={styles.divider} />
+          
+          <Button
+            mode="contained"
+            icon="logout"
+            onPress={handleLogout}
+            style={styles.logoutButton}
+            buttonColor={theme.colors.errorContainer}
+            textColor={theme.colors.error}
+          >
+            Log Out
+          </Button>
+        </Card.Content>
+      </Card>
+      
       <View style={styles.aboutSection}>
         <Button 
           mode="text"
@@ -718,5 +767,19 @@ const styles = StyleSheet.create({
   },
   aboutButton: {
     marginVertical: 4,
+  },
+  accountInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+  },
+  accountTextInfo: {
+    marginLeft: 12,
+  },
+  emailText: {
+    color: "#666",
+  },
+  logoutButton: {
+    marginTop: 12,
   },
 });
