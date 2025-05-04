@@ -1,7 +1,17 @@
 // firebaseConfig.ts
-import { FirebaseApp, getApps, initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getApps, initializeApp } from 'firebase/app';
+import {
+  createUserWithEmailAndPassword,
+  getReactNativePersistence,
+  initializeAuth,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  updateProfile
+} from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
+// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDqB4JBgoQvRomUEzunZsxjq1-DY6K0NqM",
   authDomain: "barcodescan-c4496.firebaseapp.com",
@@ -13,13 +23,57 @@ const firebaseConfig = {
   measurementId: "G-5RRRPZFMY8"
 };
 
-let firebaseApp: FirebaseApp;
+// Initialize Firebase
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-if (!getApps().length) {
-  firebaseApp = initializeApp(firebaseConfig);
-} else {
-  firebaseApp = getApps()[0];
-}
+// Initialize Auth with persistence
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage)
+});
 
-export { firebaseApp };
-export const db = getFirestore(firebaseApp);
+// Initialize Firestore
+const db = getFirestore(app);
+
+// Authentication helper functions
+export const signUp = async (email: string, password: string, displayName: string) => {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    if (userCredential.user) {
+      await updateProfile(userCredential.user, { displayName });
+    }
+    return userCredential.user;
+  } catch (error) {
+    console.error('Error signing up:', error);
+    throw error;
+  }
+};
+
+export const signIn = async (email: string, password: string) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error('Error signing in:', error);
+    throw error;
+  }
+};
+
+export const signOut = async () => {
+  try {
+    await auth.signOut();
+  } catch (error) {
+    console.error('Error signing out:', error);
+    throw error;
+  }
+};
+
+export const resetPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    throw error;
+  }
+};
+
+export { auth, db };

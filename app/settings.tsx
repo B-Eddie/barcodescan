@@ -1,43 +1,30 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Calendar from "expo-calendar";
-import * as Notifications from "expo-notifications";
-import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import {
   collection,
-  deleteDoc,
-  doc,
   getDocs,
-  getFirestore,
   query,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import {
-  Alert,
-  Linking,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
 import {
   Button,
   Card,
   Dialog,
   Divider,
   List,
-  MD3Colors,
+  Switch as PaperSwitch,
   Portal,
-  ProgressBar,
   SegmentedButtons,
   Surface,
-  Switch as PaperSwitch,
   Text,
   useTheme,
 } from "react-native-paper";
-import { firebaseApp } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
 
 // Default notification preferences
 const DEFAULT_NOTIFICATION_PREFS = {
@@ -45,7 +32,7 @@ const DEFAULT_NOTIFICATION_PREFS = {
   expiringSoon: 7, // days before expiry
   dayBefore: true,
   dayOf: true,
-  expired: true
+  expired: true,
 };
 
 // Default app preferences
@@ -54,266 +41,210 @@ const DEFAULT_APP_PREFS = {
   haptics: true,
   defaultExpiryReminder: 7,
   autoBackup: false,
-  analytics: true
+  analytics: true,
 };
 
 export default function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  
+
   // State for notification preferences
-  const [notificationPrefs, setNotificationPrefs] = useState(DEFAULT_NOTIFICATION_PREFS);
-  
+  const [notificationPrefs, setNotificationPrefs] = useState(
+    DEFAULT_NOTIFICATION_PREFS
+  );
+
   // State for app preferences
   const [appPrefs, setAppPrefs] = useState(DEFAULT_APP_PREFS);
-  
+
   // State for data management
   const [totalItems, setTotalItems] = useState(0);
   const [expiredItems, setExpiredItems] = useState(0);
-  
+
   // Dialog states
   const [clearDataDialog, setClearDataDialog] = useState(false);
   const [deleteExpiredDialog, setDeleteExpiredDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   // Accordion state
-  const [reminderSettingsExpanded, setReminderSettingsExpanded] = useState(true);
-  
+  const [reminderSettingsExpanded, setReminderSettingsExpanded] =
+    useState(true);
+
   // Load settings on mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
         // Load notification preferences
-        const notifPrefsString = await AsyncStorage.getItem('notificationPrefs');
+        const notifPrefsString = await AsyncStorage.getItem(
+          "notificationPrefs"
+        );
         if (notifPrefsString) {
           setNotificationPrefs(JSON.parse(notifPrefsString));
         }
-        
+
         // Load app preferences
-        const appPrefsString = await AsyncStorage.getItem('appPrefs');
+        const appPrefsString = await AsyncStorage.getItem("appPrefs");
         if (appPrefsString) {
           setAppPrefs(JSON.parse(appPrefsString));
         }
-        
+
         // Get stats about data
         await fetchDataStats();
       } catch (error) {
-        console.error('Error loading settings:', error);
+        console.error("Error loading settings:", error);
       }
     };
-    
+
     loadSettings();
   }, []);
-  
-  // Save notification preferences when they change
-  useEffect(() => {
-    const saveNotificationPrefs = async () => {
-      try {
-        await AsyncStorage.setItem('notificationPrefs', JSON.stringify(notificationPrefs));
-      } catch (error) {
-        console.error('Error saving notification preferences:', error);
-      }
-    };
-    
-    saveNotificationPrefs();
-  }, [notificationPrefs]);
-  
-  // Save app preferences when they change
-  useEffect(() => {
-    const saveAppPrefs = async () => {
-      try {
-        await AsyncStorage.setItem('appPrefs', JSON.stringify(appPrefs));
-      } catch (error) {
-        console.error('Error saving app preferences:', error);
-      }
-    };
-    
-    saveAppPrefs();
-  }, [appPrefs]);
-  
-  // Fetch stats about data
+
+  const saveNotificationPrefs = async () => {
+    try {
+      await AsyncStorage.setItem(
+        "notificationPrefs",
+        JSON.stringify(notificationPrefs)
+      );
+    } catch (error) {
+      console.error("Error saving notification preferences:", error);
+    }
+  };
+
+  const saveAppPrefs = async () => {
+    try {
+      await AsyncStorage.setItem("appPrefs", JSON.stringify(appPrefs));
+    } catch (error) {
+      console.error("Error saving app preferences:", error);
+    }
+  };
+
   const fetchDataStats = async () => {
     try {
-      const db = getFirestore(firebaseApp);
       const productsRef = collection(db, "products");
-      const productsSnapshot = await getDocs(query(productsRef));
-      
+      const querySnapshot = await getDocs(productsRef);
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
-      let expired = 0;
-      
-      productsSnapshot.forEach((doc) => {
+
+      let expiredCount = 0;
+      querySnapshot.forEach((doc) => {
         const data = doc.data();
         const expiryDate = new Date(data.expiryDate);
         if (expiryDate < today) {
-          expired++;
+          expiredCount++;
         }
       });
-      
-      setTotalItems(productsSnapshot.size);
-      setExpiredItems(expired);
+
+      setTotalItems(querySnapshot.size);
+      setExpiredItems(expiredCount);
     } catch (error) {
-      console.error('Error fetching data stats:', error);
+      console.error("Error fetching data stats:", error);
     }
   };
-  
-  // Request notification permissions
+
   const requestNotificationPermission = async () => {
     try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      if (finalStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status === "granted") {
+        setNotificationPrefs((prev) => ({ ...prev, enabled: true }));
+        await saveNotificationPrefs();
+      } else {
         Alert.alert(
-          'Notification Permission',
-          'Notifications are disabled. You can enable them in your device settings.',
+          "Permission Required",
+          "Please enable notifications in your device settings to receive expiry reminders.",
           [
             {
-              text: 'Cancel',
-              style: 'cancel'
+              text: "Cancel",
+              style: "cancel",
             },
             {
-              text: 'Open Settings',
-              onPress: () => Linking.openSettings()
-            }
+              text: "Open Settings",
+              onPress: () => Linking.openSettings(),
+            },
           ]
         );
-        return false;
       }
-      
-      return true;
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      return false;
+      console.error("Error requesting notification permission:", error);
     }
   };
-  
-  // Toggle notifications
+
   const toggleNotifications = async (value: boolean) => {
     if (value) {
-      const granted = await requestNotificationPermission();
-      if (!granted) return;
+      await requestNotificationPermission();
+    } else {
+      setNotificationPrefs((prev) => ({ ...prev, enabled: false }));
+      await saveNotificationPrefs();
     }
-    
-    setNotificationPrefs(prev => ({ ...prev, enabled: value }));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
-  
-  // Clear all data
+
   const handleClearAllData = async () => {
     try {
       setIsProcessing(true);
-      const db = getFirestore(firebaseApp);
       const productsRef = collection(db, "products");
-      const productsSnapshot = await getDocs(query(productsRef));
-      
-      // Create a batch operation
+      const querySnapshot = await getDocs(productsRef);
+
       const batch = writeBatch(db);
-      
-      // Delete all documents
-      productsSnapshot.forEach((doc) => {
+      querySnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
-      
-      // Commit the batch
+
       await batch.commit();
-      
-      // Reset stats
-      setTotalItems(0);
-      setExpiredItems(0);
-      
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setClearDataDialog(false);
-      Alert.alert('Success', 'All data has been cleared.');
+      await fetchDataStats();
+      Alert.alert("Success", "All data has been cleared.");
     } catch (error) {
-      console.error('Error clearing data:', error);
-      Alert.alert('Error', 'Failed to clear data. Please try again.');
+      console.error("Error clearing data:", error);
+      Alert.alert("Error", "Failed to clear data. Please try again.");
     } finally {
       setIsProcessing(false);
+      setClearDataDialog(false);
     }
   };
-  
-  // Delete expired items
+
   const handleDeleteExpired = async () => {
     try {
       setIsProcessing(true);
-      const db = getFirestore(firebaseApp);
       const productsRef = collection(db, "products");
-      const productsSnapshot = await getDocs(query(productsRef));
-      
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
-      // Create a batch operation
+
+      const q = query(
+        productsRef,
+        where("expiryDate", "<", today.toISOString().split("T")[0])
+      );
+      const querySnapshot = await getDocs(q);
+
       const batch = writeBatch(db);
-      let deletedCount = 0;
-      
-      // Delete expired documents
-      productsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        const expiryDate = new Date(data.expiryDate);
-        
-        if (expiryDate < today) {
-          batch.delete(doc.ref);
-          deletedCount++;
-        }
+      querySnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
       });
-      
-      // Commit the batch if there are items to delete
-      if (deletedCount > 0) {
-        await batch.commit();
-        
-        // Update stats
-        setTotalItems(prev => prev - deletedCount);
-        setExpiredItems(0);
-        
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', `Deleted ${deletedCount} expired item${deletedCount !== 1 ? 's' : ''}.`);
-      } else {
-        Alert.alert('Info', 'No expired items to delete.');
-      }
-      
-      setDeleteExpiredDialog(false);
+
+      await batch.commit();
+      await fetchDataStats();
+      Alert.alert("Success", "Expired items have been deleted.");
     } catch (error) {
-      console.error('Error deleting expired items:', error);
-      Alert.alert('Error', 'Failed to delete expired items. Please try again.');
+      console.error("Error deleting expired items:", error);
+      Alert.alert("Error", "Failed to delete expired items. Please try again.");
     } finally {
       setIsProcessing(false);
+      setDeleteExpiredDialog(false);
     }
   };
-  
-  // Export data
+
   const handleExportData = () => {
-    // This would implement data export functionality
-    // For demonstration purposes, we'll just show an alert
-    Alert.alert(
-      'Coming Soon',
-      'Data export functionality will be available in a future update.'
-    );
+    // TODO: Implement data export
+    Alert.alert("Coming Soon", "Data export feature will be available soon.");
   };
-  
-  // Import data
+
   const handleImportData = () => {
-    // This would implement data import functionality
-    // For demonstration purposes, we'll just show an alert
-    Alert.alert(
-      'Coming Soon',
-      'Data import functionality will be available in a future update.'
-    );
+    // TODO: Implement data import
+    Alert.alert("Coming Soon", "Data import feature will be available soon.");
   };
-  
+
   return (
     <ScrollView style={styles.container}>
       <Surface style={styles.header}>
-        <MaterialCommunityIcons 
-          name="fridge-outline" 
-          size={40} 
+        <MaterialCommunityIcons
+          name="fridge-outline"
+          size={40}
           color={theme.colors.primary}
         />
         <Text variant="headlineMedium" style={styles.title}>
@@ -323,303 +254,230 @@ export default function SettingsScreen() {
           Version 1.0.0
         </Text>
       </Surface>
-      
+
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="titleMedium" style={styles.sectionTitle}>
             Notifications
           </Text>
-          
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemText}>
-              <Text variant="bodyLarge">Enable Notifications</Text>
-              <Text variant="bodySmall" style={styles.settingDescription}>
-                Get reminders about expiring food
-              </Text>
-            </View>
-            <PaperSwitch
-              value={notificationPrefs.enabled}
-              onValueChange={toggleNotifications}
-            />
-          </View>
-          
-          <Divider style={styles.divider} />
-          
-          <List.Accordion
-            title="Reminder Settings"
-            description="Configure when you receive reminders"
-            expanded={reminderSettingsExpanded}
-            onPress={() => setReminderSettingsExpanded(!reminderSettingsExpanded)}
-            style={styles.settingsAccordion}
-            titleStyle={styles.accordionTitle}
-            descriptionStyle={styles.accordionDescription}
-          >
-            <View style={styles.settingItem}>
-              <View style={styles.settingItemText}>
-                <Text variant="bodyLarge">Expiring Soon Reminder</Text>
-                <Text variant="bodySmall" style={styles.settingDescription}>
-                  Get reminded when items are about to expire
-                </Text>
-              </View>
-              <SegmentedButtons
-                value={notificationPrefs.expiringSoon.toString()}
-                onValueChange={(value) => 
-                  setNotificationPrefs(prev => ({ ...prev, expiringSoon: parseInt(value) }))
-                }
-                buttons={[
-                  { value: '3', label: '3d' },
-                  { value: '5', label: '5d' },
-                  { value: '7', label: '7d' },
-                ]}
-              />
-            </View>
-            
-            <View style={styles.settingItem}>
-              <View style={styles.settingItemText}>
-                <Text variant="bodyLarge">Day Before Expiry</Text>
-              </View>
+
+          <List.Item
+            title="Enable Notifications"
+            description="Receive reminders about expiring items"
+            left={(props) => <List.Icon {...props} icon="bell" />}
+            right={(props) => (
               <PaperSwitch
-                value={notificationPrefs.dayBefore}
-                onValueChange={(value) => 
-                  setNotificationPrefs(prev => ({ ...prev, dayBefore: value }))
-                }
+                value={notificationPrefs.enabled}
+                onValueChange={toggleNotifications}
               />
-            </View>
-            
-            <View style={styles.settingItem}>
-              <View style={styles.settingItemText}>
-                <Text variant="bodyLarge">Day of Expiry</Text>
-              </View>
-              <PaperSwitch
-                value={notificationPrefs.dayOf}
-                onValueChange={(value) => 
-                  setNotificationPrefs(prev => ({ ...prev, dayOf: value }))
-                }
+            )}
+          />
+
+          {notificationPrefs.enabled && (
+            <>
+              <Divider style={styles.divider} />
+              <List.Item
+                title="Days Before Expiry"
+                description="When to notify about expiring items"
+                left={(props) => <List.Icon {...props} icon="clock" />}
+                right={(props) => (
+                  <SegmentedButtons
+                    value={notificationPrefs.expiringSoon.toString()}
+                    onValueChange={(value) => {
+                      setNotificationPrefs((prev) => ({
+                        ...prev,
+                        expiringSoon: parseInt(value),
+                      }));
+                      saveNotificationPrefs();
+                    }}
+                    buttons={[
+                      { value: "3", label: "3" },
+                      { value: "7", label: "7" },
+                      { value: "14", label: "14" },
+                    ]}
+                  />
+                )}
               />
-            </View>
-            
-            <View style={styles.settingItem}>
-              <View style={styles.settingItemText}>
-                <Text variant="bodyLarge">Expired Items</Text>
-                <Text variant="bodySmall" style={styles.settingDescription}>
-                  Get reminded about expired items
-                </Text>
-              </View>
-              <PaperSwitch
-                value={notificationPrefs.expired}
-                onValueChange={(value) => 
-                  setNotificationPrefs(prev => ({ ...prev, expired: value }))
-                }
-              />
-            </View>
-          </List.Accordion>
+            </>
+          )}
         </Card.Content>
       </Card>
-      
+
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="titleMedium" style={styles.sectionTitle}>
             App Preferences
           </Text>
-          
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemText}>
-              <Text variant="bodyLarge">Theme</Text>
-              <Text variant="bodySmall" style={styles.settingDescription}>
-                Set the app appearance
-              </Text>
-            </View>
-            <SegmentedButtons
-              value={appPrefs.theme}
-              onValueChange={(value) => 
-                setAppPrefs(prev => ({ ...prev, theme: value }))
-              }
-              buttons={[
-                { value: 'light', label: 'Light' },
-                { value: 'dark', label: 'Dark' },
-                { value: 'auto', label: 'Auto' },
-              ]}
-            />
-          </View>
-          
+
+          <List.Item
+            title="Theme"
+            description="Choose your preferred theme"
+            left={(props) => <List.Icon {...props} icon="theme-light-dark" />}
+            right={(props) => (
+              <SegmentedButtons
+                value={appPrefs.theme}
+                onValueChange={(value) => {
+                  setAppPrefs((prev) => ({ ...prev, theme: value }));
+                  saveAppPrefs();
+                }}
+                buttons={[
+                  { value: "light", label: "Light" },
+                  { value: "dark", label: "Dark" },
+                  { value: "auto", label: "Auto" },
+                ]}
+              />
+            )}
+          />
+
           <Divider style={styles.divider} />
-          
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemText}>
-              <Text variant="bodyLarge">Haptic Feedback</Text>
-              <Text variant="bodySmall" style={styles.settingDescription}>
-                Enable vibration on actions
-              </Text>
-            </View>
-            <PaperSwitch
-              value={appPrefs.haptics}
-              onValueChange={(value) => {
-                setAppPrefs(prev => ({ ...prev, haptics: value }));
-                if (value) {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-              }}
-            />
-          </View>
-          
-          <Divider style={styles.divider} />
-          
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemText}>
-              <Text variant="bodyLarge">Collect Analytics</Text>
-              <Text variant="bodySmall" style={styles.settingDescription}>
-                Help improve the app by sending anonymous usage data
-              </Text>
-            </View>
-            <PaperSwitch
-              value={appPrefs.analytics}
-              onValueChange={(value) => 
-                setAppPrefs(prev => ({ ...prev, analytics: value }))
-              }
-            />
-          </View>
+
+          <List.Item
+            title="Haptic Feedback"
+            description="Enable vibration feedback"
+            left={(props) => <List.Icon {...props} icon="vibrate" />}
+            right={(props) => (
+              <PaperSwitch
+                value={appPrefs.haptics}
+                onValueChange={(value) => {
+                  setAppPrefs((prev) => ({ ...prev, haptics: value }));
+                  saveAppPrefs();
+                }}
+              />
+            )}
+          />
         </Card.Content>
       </Card>
-      
+
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="titleMedium" style={styles.sectionTitle}>
             Data Management
           </Text>
-          
-          <View style={styles.dataStats}>
-            <View style={styles.dataStatItem}>
-              <Text variant="displaySmall">{totalItems}</Text>
-              <Text variant="bodyMedium">Total Items</Text>
-            </View>
-            <View style={styles.dataStatItem}>
-              <Text variant="displaySmall" style={{ color: totalItems > 0 ? theme.colors.error : undefined }}>
-                {expiredItems}
-              </Text>
-              <Text variant="bodyMedium">Expired Items</Text>
-            </View>
-          </View>
-          
-          {totalItems > 0 && (
-            <View style={styles.dataStatsBar}>
-              <ProgressBar 
-                progress={expiredItems / totalItems} 
-                color={theme.colors.error} 
-                style={styles.progressBar} 
-              />
-              <Text variant="bodySmall" style={styles.dataStatsLabel}>
-                {Math.round((expiredItems / totalItems) * 100)}% of items expired
-              </Text>
-            </View>
-          )}
-          
-          <View style={styles.dataButtons}>
-            <Button 
-              mode="outlined"
-              icon="delete"
-              onPress={() => setDeleteExpiredDialog(true)}
-              style={styles.dataButton}
-              disabled={expiredItems === 0}
-            >
-              Delete Expired
-            </Button>
-            <Button 
-              mode="outlined"
-              icon="trash-can"
-              onPress={() => setClearDataDialog(true)}
-              style={styles.dataButton}
-              disabled={totalItems === 0}
-            >
-              Clear All
-            </Button>
-          </View>
-          
+
+          <List.Item
+            title="Total Items"
+            description={`${totalItems} items in your inventory`}
+            left={(props) => <List.Icon {...props} icon="package-variant" />}
+          />
+
           <Divider style={styles.divider} />
-          
-          <View style={styles.dataButtons}>
-            <Button 
-              mode="outlined"
-              icon="cloud-upload"
-              onPress={handleExportData}
-              style={styles.dataButton}
-              disabled={totalItems === 0}
-            >
-              Export
-            </Button>
-            <Button 
-              mode="outlined"
-              icon="cloud-download"
-              onPress={handleImportData}
-              style={styles.dataButton}
-            >
-              Import
-            </Button>
-          </View>
+
+          <List.Item
+            title="Expired Items"
+            description={`${expiredItems} items have expired`}
+            left={(props) => <List.Icon {...props} icon="alert" />}
+          />
+
+          <Divider style={styles.divider} />
+
+          <List.Item
+            title="Clear All Data"
+            description="Remove all items from your inventory"
+            left={(props) => <List.Icon {...props} icon="delete" />}
+            onPress={() => setClearDataDialog(true)}
+          />
+
+          <Divider style={styles.divider} />
+
+          <List.Item
+            title="Delete Expired Items"
+            description="Remove all expired items from your inventory"
+            left={(props) => <List.Icon {...props} icon="delete-clock" />}
+            onPress={() => setDeleteExpiredDialog(true)}
+          />
+
+          <Divider style={styles.divider} />
+
+          <List.Item
+            title="Export Data"
+            description="Backup your inventory data"
+            left={(props) => <List.Icon {...props} icon="export" />}
+            onPress={handleExportData}
+          />
+
+          <Divider style={styles.divider} />
+
+          <List.Item
+            title="Import Data"
+            description="Restore your inventory data"
+            left={(props) => <List.Icon {...props} icon="import" />}
+            onPress={handleImportData}
+          />
         </Card.Content>
       </Card>
-      
+
       <View style={styles.aboutSection}>
-        <Button 
+        <Button
           mode="text"
-          onPress={() => Linking.openURL('https://example.com/privacy')}
+          onPress={() => Linking.openURL("https://example.com/privacy")}
           style={styles.aboutButton}
         >
           Privacy Policy
         </Button>
-        <Button 
+        <Button
           mode="text"
-          onPress={() => Linking.openURL('https://example.com/terms')}
+          onPress={() => Linking.openURL("https://example.com/terms")}
           style={styles.aboutButton}
         >
           Terms of Service
         </Button>
-        <Button 
+        <Button
           mode="text"
-          onPress={() => Linking.openURL('https://example.com/help')}
+          onPress={() => Linking.openURL("https://example.com/help")}
           style={styles.aboutButton}
         >
           Help & Support
         </Button>
       </View>
-      
+
       {/* Confirmation Dialogs */}
       <Portal>
-        <Dialog visible={clearDataDialog} onDismiss={() => setClearDataDialog(false)}>
+        <Dialog
+          visible={clearDataDialog}
+          onDismiss={() => setClearDataDialog(false)}
+        >
           <Dialog.Title>Clear All Data</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              This will permanently delete all your food items and cannot be undone. Are you sure?
+              Are you sure you want to delete all items from your inventory?
+              This action cannot be undone.
             </Text>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setClearDataDialog(false)}>Cancel</Button>
-            <Button 
-              onPress={handleClearAllData} 
+            <Button
+              onPress={handleClearAllData}
               textColor={theme.colors.error}
               loading={isProcessing}
               disabled={isProcessing}
             >
-              Delete
+              Delete All
             </Button>
           </Dialog.Actions>
         </Dialog>
-        
-        <Dialog visible={deleteExpiredDialog} onDismiss={() => setDeleteExpiredDialog(false)}>
+
+        <Dialog
+          visible={deleteExpiredDialog}
+          onDismiss={() => setDeleteExpiredDialog(false)}
+        >
           <Dialog.Title>Delete Expired Items</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              This will permanently delete all expired items ({expiredItems} items). Continue?
+              Are you sure you want to delete all expired items from your
+              inventory? This action cannot be undone.
             </Text>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setDeleteExpiredDialog(false)}>Cancel</Button>
-            <Button 
-              onPress={handleDeleteExpired} 
+            <Button onPress={() => setDeleteExpiredDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onPress={handleDeleteExpired}
               textColor={theme.colors.error}
               loading={isProcessing}
               disabled={isProcessing}
             >
-              Delete
+              Delete Expired
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -657,60 +515,8 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 16,
   },
-  settingItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  settingItemText: {
-    flex: 1,
-  },
-  settingDescription: {
-    color: "#666",
-    marginTop: 2,
-  },
   divider: {
     marginVertical: 8,
-  },
-  settingsAccordion: {
-    paddingHorizontal: 0,
-  },
-  accordionTitle: {
-    fontSize: 16,
-  },
-  accordionDescription: {
-    fontSize: 12,
-    color: "#666",
-  },
-  dataStats: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginVertical: 16,
-  },
-  dataStatItem: {
-    alignItems: "center",
-  },
-  dataStatsBar: {
-    marginBottom: 16,
-  },
-  progressBar: {
-    height: 6,
-    borderRadius: 3,
-  },
-  dataStatsLabel: {
-    textAlign: "right",
-    color: "#666",
-    marginTop: 4,
-  },
-  dataButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-  dataButton: {
-    flex: 1,
-    marginHorizontal: 4,
   },
   aboutSection: {
     marginVertical: 16,
