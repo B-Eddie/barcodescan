@@ -1,0 +1,27 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="95" fill="#4CAF50" stroke="#2E7D32" stroke-width="6"/>
+  
+  <!-- Fridge Icon -->
+  <path d="M70 50H130C135.523 50 140 54.4772 140 60V140C140 145.523 135.523 150 130 150H70C64.4772 150 60 145.523 60 140V60C60 54.4772 64.4772 50 70 50Z" fill="white" stroke="#2E7D32" stroke-width="4"/>
+  
+  <!-- Fridge Divider -->
+  <path d="M60 90H140" stroke="#2E7D32" stroke-width="4"/>
+  
+  <!-- Handle -->
+  <path d="M125 70C125 67.2386 127.239 65 130 65C132.761 65 135 67.2386 135 70V80C135 82.7614 132.761 85 130 85C127.239 85 125 82.7614 125 80V70Z" fill="#2E7D32"/>
+  <path d="M125 110C125 107.239 127.239 105 130 105C132.761 105 135 107.239 135 110V120C135 122.761 132.761 125 130 125C127.239 125 125 122.761 125 120V110Z" fill="#2E7D32"/>
+  
+  <!-- Clock Icon -->
+  <circle cx="90" cy="120" r="20" fill="#FFC107" stroke="#2E7D32" stroke-width="3"/>
+  <path d="M90 108V120L98 128" stroke="#2E7D32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Barcode Lines -->
+  <path d="M75 65H80V85H75V65Z" fill="#2E7D32"/>
+  <path d="M83 65H85V85H83V65Z" fill="#2E7D32"/>
+  <path d="M88 65H90V85H88V65Z" fill="#2E7D32"/>
+  <path d="M93 65H98V85H93V65Z" fill="#2E7D32"/>
+  <path d="M101 65H103V85H101V65Z" fill="#2E7D32"/>
+  <path d="M106 65H108V85H106V65Z" fill="#2E7D32"/>
+  <path d="M111 65H116V85H111V65Z" fill="#2E7D32"/>
+</svg> 

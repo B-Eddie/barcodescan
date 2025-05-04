@@ -38,7 +38,20 @@ export default function Layout() {
           title: "Scan",
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons
-              name="qrcode-scan"
+              name="barcode-scan"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="receipt-scan"
+        options={{
+          title: "Receipt",
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons
+              name="receipt"
               size={size}
               color={color}
             />
