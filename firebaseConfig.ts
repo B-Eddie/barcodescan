@@ -1,8 +1,8 @@
 // firebaseConfig.ts
-import { FirebaseApp, getApps, initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { FirebaseApp, getApps, initializeApp, FirebaseOptions } from "firebase/app";
+import { getFirestore, enableIndexedDbPersistence, connectFirestoreEmulator, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: "AIzaSyDqB4JBgoQvRomUEzunZsxjq1-DY6K0NqM",
   authDomain: "barcodescan-c4496.firebaseapp.com",
   databaseURL: "https://barcodescan-c4496-default-rtdb.firebaseio.com",
@@ -15,11 +15,51 @@ const firebaseConfig = {
 
 let firebaseApp: FirebaseApp;
 
-if (!getApps().length) {
-  firebaseApp = initializeApp(firebaseConfig);
-} else {
-  firebaseApp = getApps()[0];
+// Initialize Firebase with error handling
+try {
+  if (!getApps().length) {
+    console.log("Initializing Firebase...");
+    firebaseApp = initializeApp(firebaseConfig);
+  } else {
+    console.log("Firebase already initialized");
+    firebaseApp = getApps()[0];
+  }
+} catch (error) {
+  console.error("Firebase initialization error:", error);
+  // Fallback initialization with minimal config if possible
+  const minimalConfig = {
+    apiKey: firebaseConfig.apiKey,
+    projectId: firebaseConfig.projectId,
+  };
+  
+  if (!getApps().length) {
+    firebaseApp = initializeApp(minimalConfig);
+  } else {
+    firebaseApp = getApps()[0];
+  }
+}
+
+// Initialize Firestore with enhanced persistence settings
+export const db = getFirestore(firebaseApp);
+
+// Enable offline persistence with more robust error handling
+try {
+  // Enable indexedDB persistence for offline capability with larger cache
+  enableIndexedDbPersistence(db, {
+    forceOwnership: true
+  }).then(() => {
+    console.log("Firestore persistence enabled");
+  }).catch((error) => {
+    if (error.code === 'failed-precondition') {
+      console.warn("Firestore persistence could not be enabled (multiple tabs open)");
+    } else if (error.code === 'unimplemented') {
+      console.warn("Firestore persistence not supported by this browser");
+    } else {
+      console.error("Firestore persistence error:", error);
+    }
+  });
+} catch (error) {
+  console.error("Error initializing Firestore settings:", error);
 }
 
 export { firebaseApp };
-export const db = getFirestore(firebaseApp);

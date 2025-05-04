@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
+import { doc, getDoc, getFirestore, setDoc, DocumentSnapshot, DocumentData } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -102,32 +102,54 @@ export default function ProductScreen() {
         if (barcode) {
           const db = getFirestore(firebaseApp);
           const productRef = doc(db, "products", barcode);
-          const productSnap = await getDoc(productRef);
+          
+          // Add timeout protection for the Firestore query
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Database request timed out')), 8000)
+          );
+          
+          try {
+            // Race the query with a timeout
+            const productSnap = await Promise.race([
+              getDoc(productRef),
+              timeoutPromise
+            ]) as DocumentSnapshot<DocumentData>;
 
-          if (productSnap.exists()) {
-            const data = productSnap.data();
-            setExistingProduct(data);
-            setProductName(data.name || "Unknown Product");
-            if (data.expiryDate) {
-              setExpiryDate(new Date(data.expiryDate));
+            if (productSnap.exists()) {
+              const data = productSnap.data();
+              setExistingProduct(data);
+              setProductName(data.name || "Unknown Product");
+              if (data.expiryDate) {
+                setExpiryDate(new Date(data.expiryDate));
+              }
+              if (data.category) {
+                setCategory(data.category);
+              }
+              if (data.imageUrl) {
+                setImage(data.imageUrl);
+              }
+              if (data.quantity) {
+                setQuantity(data.quantity.toString());
+              }
+              if (data.notes) {
+                setNotes(data.notes);
+              }
+              
+              // Notify user
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } else {
+              // Try to predict expiry based on product name
+              predictExpiry(productName);
             }
-            if (data.category) {
-              setCategory(data.category);
+          } catch (dbError) {
+            console.error("Database query error:", dbError);
+            if (dbError instanceof Error && dbError.message === 'Database request timed out') {
+              Alert.alert(
+                "Connection Issue", 
+                "The product information request timed out. Please check your connection and try again."
+              );
             }
-            if (data.imageUrl) {
-              setImage(data.imageUrl);
-            }
-            if (data.quantity) {
-              setQuantity(data.quantity.toString());
-            }
-            if (data.notes) {
-              setNotes(data.notes);
-            }
-            
-            // Notify user
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } else {
-            // Try to predict expiry based on product name
+            // Continue with basic product info even if fetch fails
             predictExpiry(productName);
           }
         }
