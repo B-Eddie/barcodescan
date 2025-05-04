@@ -1,160 +1,262 @@
-import React, { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Alert, ActivityIndicator } from "react-native";
-import { Text, Appbar, Button } from "react-native-paper";
-import { Camera } from "expo-camera";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
-import { firebaseApp } from "../firebaseConfig";
+import {
+  BarcodeScanningResult,
+  CameraView,
+  useCameraPermissions,
+} from "expo-camera";
 import { useRouter } from "expo-router";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Dimensions, StyleSheet, View } from "react-native";
+import { Button, Text } from "react-native-paper";
+
+const { width, height } = Dimensions.get("window");
+const SCAN_AREA_SIZE = Math.min(width, height) * 0.7;
 
 export default function ScanScreen() {
-  const [hasPermission, setHasPermission] = useState<null | boolean>(null);
-  const [scanned, setScanned] = useState(false);
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const cameraRef = useRef(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [scanned, setScanned] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [isScanning, setIsScanning] = useState(true);
+  const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(
+    null
+  );
+  const isProcessing = useRef(false);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === "granted");
-    })();
-  }, []);
+    const checkPermissions = async () => {
+      if (permission?.granted) {
+        setHasPermission(true);
+      } else if (permission === null) {
+        // still loading
+      } else if (permission.canAskAgain) {
+        const { granted } = await requestPermission();
+        setHasPermission(granted);
+      } else {
+        setHasPermission(false);
+      }
+    };
 
-  const handleBarCodeScanned = async ({ data }) => {
-    if (scanned) return;
+    checkPermissions();
+  }, [permission]);
+
+  const handleBarCodeScanned = ({ type, data }: BarcodeScanningResult) => {
+    if (scanned || !isScanning || isProcessing.current) return;
+
+    // Prevent scanning the same barcode multiple times
+    if (lastScannedBarcode === data) return;
+    setLastScannedBarcode(data);
+
     setScanned(true);
-    setLoading(true);
-    try {
-      // Query Firestore for product by barcode using JS SDK
-      const db = getFirestore(firebaseApp);
-      const docRef = doc(db, "products", data);
-      const docSnap = await getDoc(docRef);
-      let product = docSnap.exists() ? docSnap.data() : null;
-      if (!product) {
-        Alert.alert("Product not found", "Enter details manually.", [
-          {
-            text: "OK",
-            onPress: () =>
-              router.push({
-                pathname: "/manual-entry",
-                params: { barcode: data },
-              }),
-          },
-        ]);
-        setLoading(false);
-        return;
+    setIsScanning(false);
+    isProcessing.current = true;
+
+    // Format the barcode type for display
+    const formatBarcodeType = (type: string) => {
+      switch (type.toLowerCase()) {
+        case "ean13":
+          return "EAN-13 (Standard Product Code)";
+        case "ean8":
+          return "EAN-8 (Short Product Code)";
+        case "upc_e":
+          return "UPC-E (Compressed UPC)";
+        case "upc_a":
+          return "UPC-A (Universal Product Code)";
+        case "qr":
+          return "QR Code";
+        default:
+          return type;
       }
-      // If expiry date missing, prompt for manual entry
-      if (!product.expiryDate) {
-        Alert.alert("Expiry Date Missing", "Please enter the expiry date.", [
-          {
-            text: "OK",
-            onPress: () =>
-              router.push({
-                pathname: "/manual-entry",
-                params: {
-                  barcode: data,
-                  name: product.name,
-                  imageUrl: product.imageUrl,
-                },
-              }),
+    };
+
+    Alert.alert(
+      "Barcode Detected",
+      `Type: ${formatBarcodeType(
+        type
+      )}\n\nCode: ${data}\n\nWhat would you like to do?`,
+      [
+        {
+          text: "View Product",
+          onPress: () => {
+            isProcessing.current = false;
+            router.push({
+              pathname: "/product",
+              params: { barcode: data },
+            });
           },
-        ]);
-        setLoading(false);
-        return;
-      }
-      // Navigate to product detail
-      router.push({
-        pathname: "/product-detail",
-        params: { barcode: data, ...product },
-      });
-    } catch (e) {
-      Alert.alert("Scan Error", "Failed to fetch product info. Try again?");
-    }
-    setLoading(false);
+        },
+        {
+          text: "Back to Home",
+          onPress: () => {
+            isProcessing.current = false;
+            router.push("/");
+          },
+        },
+      ]
+    );
   };
 
-  if (hasPermission === null) {
+  const startScanning = () => {
+    setIsScanning(true);
+    setScanned(false);
+    setLastScannedBarcode(null);
+    isProcessing.current = false;
+  };
+
+  if (permission === null) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator />
+        <Text>Requesting for camera permission</Text>
       </View>
     );
   }
-  if (hasPermission === false) {
+
+  if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text>No camera access.</Text>
+        <Text>No access to camera</Text>
+        <Button mode="contained" onPress={requestPermission}>
+          Grant Permission
+        </Button>
+        <Button
+          mode="outlined"
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          Go Back
+        </Button>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.Content title="Scan Barcode" />
-      </Appbar.Header>
-      <View
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#222",
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        onBarcodeScanned={isScanning ? handleBarCodeScanned : undefined}
+        barcodeScannerSettings={{
+          barcodeTypes: ["ean13", "ean8", "upc_e", "upc_a", "qr"],
         }}
       >
-        {!scanned && (
-          <View
-            style={{
-              width: 280,
-              height: 280,
-              borderRadius: 16,
-              overflow: "hidden",
-              borderWidth: 2,
-              borderColor: "#fff",
-            }}
-          >
-            <Camera
-              ref={cameraRef}
-              style={{ width: 280, height: 280 }}
-              onBarCodeScanned={handleBarCodeScanned}
-              barCodeScannerSettings={{
-                barCodeTypes: ["ean13", "upc_a", "qr"],
-              }}
-            />
-            <MaterialCommunityIcons
-              name="barcode-scan"
-              size={48}
-              color="#fff"
-              style={{
-                position: "absolute",
-                top: 116,
-                left: 116,
-                opacity: 0.5,
-              }}
-            />
+        <View style={styles.overlay}>
+          <View style={styles.scanArea}>
+            <View style={styles.cornerTopLeft} />
+            <View style={styles.cornerTopRight} />
+            <View style={styles.cornerBottomLeft} />
+            <View style={styles.cornerBottomRight} />
           </View>
-        )}
-        {loading && (
-          <ActivityIndicator
-            style={{ position: "absolute", top: "50%", left: "50%" }}
-          />
-        )}
-        {scanned && !loading && (
-          <Button
-            mode="contained"
-            onPress={() => setScanned(false)}
-            style={{ margin: 16 }}
-            icon="camera"
-          >
-            Scan Again
-          </Button>
-        )}
-      </View>
+          {!isScanning && (
+            <Button
+              mode="contained"
+              style={styles.scanButton}
+              onPress={startScanning}
+            >
+              Start Scanning
+            </Button>
+          )}
+          {isScanning && !scanned && (
+            <Button
+              mode="contained"
+              style={styles.cancelButton}
+              onPress={() => setIsScanning(false)}
+            >
+              Cancel
+            </Button>
+          )}
+          {scanned && (
+            <Button
+              mode="contained"
+              style={styles.scanAgainButton}
+              onPress={startScanning}
+            >
+              Scan Again
+            </Button>
+          )}
+        </View>
+      </CameraView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  scanArea: {
+    width: SCAN_AREA_SIZE,
+    height: SCAN_AREA_SIZE,
+    borderWidth: 2,
+    borderColor: "transparent",
+    position: "relative",
+  },
+  cornerTopLeft: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 30,
+    height: 30,
+    borderLeftWidth: 4,
+    borderTopWidth: 4,
+    borderColor: "#fff",
+  },
+  cornerTopRight: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRightWidth: 4,
+    borderTopWidth: 4,
+    borderColor: "#fff",
+  },
+  cornerBottomLeft: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    width: 30,
+    height: 30,
+    borderLeftWidth: 4,
+    borderBottomWidth: 4,
+    borderColor: "#fff",
+  },
+  cornerBottomRight: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRightWidth: 4,
+    borderBottomWidth: 4,
+    borderColor: "#fff",
+  },
+  scanButton: {
+    position: "absolute",
+    bottom: 50,
+    width: "80%",
+    alignSelf: "center",
+  },
+  cancelButton: {
+    position: "absolute",
+    bottom: 50,
+    width: "80%",
+    alignSelf: "center",
+    backgroundColor: "#ff4444",
+  },
+  scanAgainButton: {
+    position: "absolute",
+    bottom: 50,
+    width: "80%",
+    alignSelf: "center",
+  },
+  backButton: {
+    marginTop: 10,
+  },
 });

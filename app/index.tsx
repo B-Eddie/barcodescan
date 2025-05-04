@@ -1,85 +1,182 @@
-import { Stack, useRouter } from "expo-router";
-import { View, StyleSheet } from "react-native";
-import { Button, Text, Appbar } from "react-native-paper";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import {
+  collection,
+  getDocs,
+  getFirestore,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
-import { getFirestore, collection, getDocs } from "firebase/firestore";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { Button, Card, Text, useTheme } from "react-native-paper";
 import { firebaseApp } from "../firebaseConfig";
+
+interface ExpiryItem {
+  id: string;
+  name: string;
+  expiryDate: string;
+  daysUntilExpiry: number;
+  imageUrl?: string;
+}
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [upcoming, setUpcoming] = useState<any[]>([]);
+  const theme = useTheme();
+  const [upcomingItems, setUpcomingItems] = useState<ExpiryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const fetchUpcoming = async () => {
-      const db = getFirestore(firebaseApp);
-      const querySnapshot = await getDocs(collection(db, "products"));
-      const now = new Date();
-      const week = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const items: any[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const d = docSnap.data();
-        if (
-          d.expiryDate &&
-          new Date(d.expiryDate) >= now &&
-          new Date(d.expiryDate) <= week
-        ) {
-          items.push(d);
-        }
-      });
-      setUpcoming(
-        items.sort(
-          (a, b) =>
-            new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
-        )
-      );
+    const fetchUpcomingItems = async () => {
+      try {
+        const db = getFirestore(firebaseApp);
+        const productsRef = collection(db, "products");
+
+        // Get current date
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Query products with expiry dates in the future
+        const q = query(
+          productsRef,
+          where("expiryDate", ">=", today.toISOString().split("T")[0]),
+          orderBy("expiryDate", "asc")
+        );
+
+        const querySnapshot = await getDocs(q);
+        const products: ExpiryItem[] = [];
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const expiryDate = new Date(data.expiryDate);
+          const daysUntilExpiry = Math.ceil(
+            (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+          );
+
+          products.push({
+            id: doc.id,
+            name: data.name || "Unknown Product",
+            expiryDate: data.expiryDate,
+            daysUntilExpiry: daysUntilExpiry,
+            imageUrl: data.imageUrl,
+          });
+        });
+
+        setUpcomingItems(products);
+      } catch (error) {
+        console.error("Error fetching upcoming items:", error);
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchUpcoming();
+
+    fetchUpcomingItems();
   }, []);
+
+  const getExpiryColor = (days: number) => {
+    if (days <= 3) return theme.colors.error;
+    if (days <= 7) return theme.colors.tertiary;
+    return theme.colors.primary;
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text>Loading upcoming items...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.Content title="Expiry Tracker" />
-      </Appbar.Header>
+      <ScrollView style={styles.scrollView}>
+        <Text variant="headlineMedium" style={styles.title}>
+          Upcoming Expiries
+        </Text>
+        {upcomingItems.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No upcoming expiries</Text>
+            <Text style={styles.emptyStateSubtext}>
+              Scan a product and add an expiry date to see it here
+            </Text>
+          </View>
+        ) : (
+          upcomingItems.map((item) => (
+            <Card key={item.id} style={styles.card}>
+              <Card.Content>
+                <View style={styles.cardContent}>
+                  <View>
+                    <Text variant="titleMedium">{item.name}</Text>
+                    <Text variant="bodyMedium">
+                      Expires: {new Date(item.expiryDate).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <Text
+                    variant="titleLarge"
+                    style={{ color: getExpiryColor(item.daysUntilExpiry) }}
+                  >
+                    {item.daysUntilExpiry} days
+                  </Text>
+                </View>
+              </Card.Content>
+            </Card>
+          ))
+        )}
+      </ScrollView>
       <Button
         mode="contained"
         onPress={() => router.push("/scan")}
-        style={{ margin: 16 }}
+        style={styles.scanButton}
+        icon={({ size, color }) => (
+          <MaterialCommunityIcons
+            name="barcode-scan"
+            size={size}
+            color={color}
+          />
+        )}
       >
-        Scan Barcode
+        Scan Product
       </Button>
-      <Text style={{ margin: 16, fontWeight: "bold" }}>
-        Upcoming Expiries (Next 7 Days):
-      </Text>
-      {upcoming.length === 0 ? (
-        <Text style={{ margin: 16 }}>No upcoming expiries.</Text>
-      ) : (
-        upcoming.map((item, idx) => (
-          <View
-            key={idx}
-            style={{
-              marginHorizontal: 16,
-              marginBottom: 8,
-              padding: 8,
-              backgroundColor: "#fffbe6",
-              borderRadius: 8,
-              borderLeftWidth: 4,
-              borderLeftColor:
-                new Date(item.expiryDate) <
-                new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-                  ? "red"
-                  : "orange",
-            }}
-          >
-            <Text style={{ fontWeight: "bold" }}>{item.name}</Text>
-            <Text>Expires: {item.expiryDate}</Text>
-          </View>
-        ))
-      )}
-      <Button onPress={() => router.push("/calendar")}>Calendar View</Button>
-      <Button onPress={() => router.push("/manual-entry")}>Manual Entry</Button>
-      <Button onPress={() => router.push("/settings")}>Settings</Button>
     </View>
   );
 }
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  scrollView: {
+    flex: 1,
+    padding: 16,
+  },
+  title: {
+    marginBottom: 16,
+  },
+  card: {
+    marginBottom: 12,
+  },
+  cardContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  scanButton: {
+    margin: 16,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    color: "#666",
+    textAlign: "center",
+  },
 });
