@@ -27,6 +27,7 @@ import {
   useTheme,
 } from "react-native-paper";
 import { auth, database } from "../firebaseConfig";
+import { updateCalendarEvent } from "../utils/calendar";
 
 // Common food expiry estimates (in days)
 const FOOD_EXPIRY_ESTIMATES: Record<string, number> = {
@@ -56,6 +57,7 @@ interface ProductData {
   quantity: number;
   imageUrl?: string;
   brand?: string;
+  calendarEventId?: string;
 }
 
 const CATEGORIES = [
@@ -238,16 +240,12 @@ export default function ProductScreen() {
   };
 
   const handleSave = async () => {
-    if (!productName.trim()) {
-      Alert.alert("Error", "Please enter a product name");
-      return;
-    }
-
     try {
       setSaving(true);
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
-        throw new Error("User not logged in");
+        Alert.alert("Error", "You must be logged in to save products");
+        return;
       }
 
       const encodedEmail = encodeURIComponent(
@@ -263,9 +261,33 @@ export default function ProductScreen() {
         expiryDate: expiryDate.toISOString().split("T")[0],
         category: selectedCategory,
         quantity: parseInt(quantity) || 1,
-        imageUrl: imageUrl as string | undefined,
-        brand: brand as string | undefined,
       };
+
+      if (typeof imageUrl === "string") {
+        productData.imageUrl = imageUrl;
+      }
+      if (typeof brand === "string") {
+        productData.brand = brand;
+      }
+
+      // Get existing product data to check for calendar event
+      const snapshot = await get(productRef);
+      const existingProduct = snapshot.val();
+
+      // Handle calendar event
+      if (existingProduct?.calendarEventId) {
+        // Update existing calendar event
+        await updateCalendarEvent(existingProduct.calendarEventId, {
+          title: `${productName.trim()} Expires`,
+          startDate: new Date(expiryDate),
+          endDate: new Date(expiryDate),
+          notes: `Product: ${productName.trim()}\nCategory: ${selectedCategory}\nQuantity: ${
+            parseInt(quantity) || 1
+          }`,
+          location: "Your Pantry",
+        });
+        productData.calendarEventId = existingProduct.calendarEventId;
+      }
 
       await set(productRef, productData);
       Alert.alert("Success", "Product saved successfully");

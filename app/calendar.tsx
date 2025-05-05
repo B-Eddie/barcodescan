@@ -1,21 +1,23 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { get, ref } from "firebase/database";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  RefreshControl,
+  Animated,
+  Dimensions,
   ScrollView,
   StyleSheet,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { Calendar as RNCalendar } from "react-native-calendars";
 import {
   ActivityIndicator,
-  Card,
   Chip,
-  Divider,
+  IconButton,
+  Surface,
   Text,
   useTheme,
 } from "react-native-paper";
@@ -41,6 +43,8 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const { width } = Dimensions.get("window");
 
   // Cache keys
   const CACHE_KEY = "calendar_dates_cache";
@@ -169,6 +173,11 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     fetchExpiryDates();
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -184,263 +193,330 @@ export default function CalendarScreen() {
     .filter((date) => date.daysUntilExpiry >= 0 && date.daysUntilExpiry <= 7)
     .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
 
-  return (
-    <View style={styles.container}>
-      <ScrollView
-        style={styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+  if (loading) {
+    return (
+      <LinearGradient
+        colors={["#f6f7f9", "#ffffff"]}
+        style={styles.loadingContainer}
       >
-        <View style={styles.calendarContainer}>
-          <RNCalendar
-            markedDates={markedDates}
-            markingType="dot"
-            onDayPress={(day) => setSelectedDate(day.dateString)}
-            theme={{
-              selectedDayBackgroundColor: theme.colors.primary,
-              todayTextColor: theme.colors.primary,
-              dotColor: theme.colors.primary,
-              arrowColor: theme.colors.primary,
-              monthTextColor: theme.colors.primary,
-              textMonthFontWeight: "bold",
-              textDayHeaderFontWeight: "500",
-              "stylesheet.calendar.header": {
-                dayTextAtIndex0: {
-                  color: theme.colors.error,
-                },
-                dayTextAtIndex6: {
-                  color: theme.colors.primary,
-                },
-              },
-            }}
-          />
-        </View>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading your calendar...</Text>
+      </LinearGradient>
+    );
+  }
 
-        <View style={styles.legendContainer}>
-          <Chip
-            icon="alert"
-            style={[styles.legendChip, { backgroundColor: theme.colors.error }]}
-          >
-            Expired/Urgent
-          </Chip>
-          <Chip
-            icon="clock"
-            style={[
-              styles.legendChip,
-              { backgroundColor: theme.colors.warning },
-            ]}
-          >
-            Soon
-          </Chip>
-          <Chip
-            icon="check"
-            style={[
-              styles.legendChip,
-              { backgroundColor: theme.colors.primary },
-            ]}
-          >
-            Good
-          </Chip>
-        </View>
+  return (
+    <LinearGradient colors={["#f6f7f9", "#ffffff"]} style={styles.container}>
+      <ScrollView style={styles.scrollView}>
+        <Animated.View style={{ opacity: fadeAnim }}>
+          <Surface style={styles.calendarCard} elevation={4}>
+            <RNCalendar
+              markedDates={markedDates}
+              markingType="dot"
+              onDayPress={(day) => setSelectedDate(day.dateString)}
+              theme={{
+                selectedDayBackgroundColor: theme.colors.primary,
+                todayTextColor: theme.colors.primary,
+                dotColor: theme.colors.primary,
+                arrowColor: theme.colors.primary,
+                monthTextColor: theme.colors.primary,
+                textMonthFontWeight: "bold",
+                textDayHeaderFontWeight: "500",
+                "stylesheet.calendar.header": {
+                  dayTextAtIndex0: {
+                    color: theme.colors.error,
+                  },
+                  dayTextAtIndex6: {
+                    color: theme.colors.primary,
+                  },
+                },
+              }}
+            />
+          </Surface>
 
-        {upcomingExpiries.length > 0 && (
-          <View style={styles.section}>
-            <Text variant="titleLarge" style={styles.sectionTitle}>
-              Upcoming Expiries
+          <Surface style={styles.legendCard} elevation={4}>
+            <Text variant="titleMedium" style={styles.sectionTitle}>
+              Legend
             </Text>
-            {upcomingExpiries.map((date) => (
-              <Card
-                key={date.id}
-                style={styles.card}
-                onPress={() =>
-                  router.push(`/product-detail?barcode=${date.id}`)
-                }
+            <View style={styles.legendContainer}>
+              <Chip
+                icon="alert"
+                style={[
+                  styles.legendChip,
+                  { backgroundColor: theme.colors.error },
+                ]}
               >
-                <Card.Content>
-                  <View style={styles.cardContent}>
-                    {date.imageUrl && (
-                      <Image
-                        source={{ uri: date.imageUrl }}
-                        style={styles.image}
-                        contentFit="cover"
-                      />
-                    )}
-                    <View style={styles.textContainer}>
-                      <Text variant="titleMedium">{date.name}</Text>
-                      <View style={styles.statusContainer}>
-                        <Chip
-                          icon={getCategoryIcon(date.category)}
-                          style={[
-                            styles.statusChip,
-                            {
-                              backgroundColor: getExpiryColor(
-                                date.daysUntilExpiry
-                              ),
-                            },
-                          ]}
-                        >
-                          {getExpiryStatus(date.daysUntilExpiry)}
-                        </Chip>
-                      </View>
-                      <Text variant="bodySmall">
-                        {new Date(date.date).toLocaleDateString()}
-                      </Text>
-                    </View>
-                  </View>
-                </Card.Content>
-              </Card>
-            ))}
-          </View>
-        )}
+                Expired/Urgent
+              </Chip>
+              <Chip
+                icon="clock"
+                style={[
+                  styles.legendChip,
+                  { backgroundColor: theme.colors.warning },
+                ]}
+              >
+                Soon
+              </Chip>
+              <Chip
+                icon="check"
+                style={[
+                  styles.legendChip,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                Good
+              </Chip>
+            </View>
+          </Surface>
 
-        <Divider style={styles.divider} />
-
-        <Text variant="titleLarge" style={styles.sectionTitle}>
-          {new Date(selectedDate).toLocaleDateString(undefined, {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </Text>
-
-        {loading ? (
-          <ActivityIndicator size="large" style={styles.loader} />
-        ) : filteredDates.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Card.Content>
-              <Text variant="bodyLarge" style={styles.emptyText}>
-                No items expiring on this date
+          {upcomingExpiries.length > 0 && (
+            <Surface style={styles.upcomingCard} elevation={4}>
+              <Text variant="titleMedium" style={styles.sectionTitle}>
+                Upcoming Expiries
               </Text>
-            </Card.Content>
-          </Card>
-        ) : (
-          filteredDates.map((date) => (
-            <Card
-              key={date.id}
-              style={styles.card}
-              onPress={() => router.push(`/product-detail?barcode=${date.id}`)}
-            >
-              <Card.Content>
-                <View style={styles.cardContent}>
-                  {date.imageUrl && (
-                    <Image
-                      source={{ uri: date.imageUrl }}
-                      style={styles.image}
-                      contentFit="cover"
-                    />
-                  )}
-                  <View style={styles.textContainer}>
-                    <Text variant="titleMedium">{date.name}</Text>
-                    <View style={styles.statusContainer}>
-                      <Chip
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.upcomingScroll}
+              >
+                {upcomingExpiries.map((date) => (
+                  <TouchableOpacity
+                    key={date.id}
+                    onPress={() =>
+                      router.push(`/product-detail?barcode=${date.id}`)
+                    }
+                  >
+                    <LinearGradient
+                      colors={["#ffffff", "#f8f9fa"]}
+                      style={styles.upcomingItem}
+                    >
+                      <IconButton
                         icon={getCategoryIcon(date.category)}
+                        size={32}
+                        iconColor={theme.colors.primary}
+                      />
+                      <Text
+                        variant="bodyMedium"
+                        style={styles.upcomingName}
+                        numberOfLines={1}
+                      >
+                        {date.name}
+                      </Text>
+                      <Chip
+                        icon="clock"
                         style={[
-                          styles.statusChip,
+                          styles.expiryChip,
                           {
-                            backgroundColor: getExpiryColor(
-                              date.daysUntilExpiry
-                            ),
+                            backgroundColor:
+                              date.daysUntilExpiry <= 3
+                                ? theme.colors.error
+                                : theme.colors.warning,
                           },
                         ]}
+                        textStyle={{ color: "#fff" }}
                       >
                         {getExpiryStatus(date.daysUntilExpiry)}
                       </Chip>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </Surface>
+          )}
+
+          <Surface style={styles.selectedDateCard} elevation={4}>
+            <Text variant="titleMedium" style={styles.sectionTitle}>
+              {new Date(selectedDate).toLocaleDateString(undefined, {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </Text>
+            {filteredDates.length === 0 ? (
+              <View style={styles.emptyDate}>
+                <IconButton
+                  icon="calendar-blank"
+                  size={48}
+                  iconColor={theme.colors.primary}
+                />
+                <Text style={styles.emptyDateText}>
+                  No items expiring on this date
+                </Text>
+              </View>
+            ) : (
+              filteredDates.map((date) => (
+                <TouchableOpacity
+                  key={date.id}
+                  onPress={() =>
+                    router.push(`/product-detail?barcode=${date.id}`)
+                  }
+                >
+                  <LinearGradient
+                    colors={["#ffffff", "#f8f9fa"]}
+                    style={styles.productCard}
+                  >
+                    <View style={styles.productInfo}>
+                      <IconButton
+                        icon={getCategoryIcon(date.category)}
+                        size={32}
+                        iconColor={theme.colors.primary}
+                      />
+                      <View style={styles.productDetails}>
+                        <Text variant="titleMedium" style={styles.productName}>
+                          {date.name}
+                        </Text>
+                        <View style={styles.productMeta}>
+                          <Chip
+                            icon={getCategoryIcon(date.category)}
+                            style={[
+                              styles.categoryChip,
+                              {
+                                backgroundColor: theme.colors.primaryContainer,
+                              },
+                            ]}
+                            textStyle={{ color: theme.colors.primary }}
+                          >
+                            {date.category}
+                          </Chip>
+                          <Chip
+                            icon="clock"
+                            style={[
+                              styles.expiryChip,
+                              {
+                                backgroundColor: getExpiryColor(
+                                  date.daysUntilExpiry
+                                ),
+                              },
+                            ]}
+                            textStyle={{ color: "#fff" }}
+                          >
+                            {getExpiryStatus(date.daysUntilExpiry)}
+                          </Chip>
+                        </View>
+                      </View>
                     </View>
-                    {date.quantity && (
-                      <Text variant="bodySmall">Quantity: {date.quantity}</Text>
-                    )}
-                  </View>
-                </View>
-              </Card.Content>
-            </Card>
-          ))
-        )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))
+            )}
+          </Surface>
+        </Animated.View>
       </ScrollView>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
   },
-  listContainer: {
+  scrollView: {
     flex: 1,
   },
-  calendarContainer: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
     marginTop: 16,
-    marginHorizontal: 16,
-    borderRadius: 12,
+    fontSize: 16,
+    color: "#666",
+  },
+  calendarCard: {
+    margin: 16,
+    borderRadius: 24,
     overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    backgroundColor: "#fff",
+  },
+  legendCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 24,
+    padding: 16,
+    backgroundColor: "#fff",
+  },
+  sectionTitle: {
+    marginBottom: 16,
+    fontWeight: "600",
+    color: "#1a1a1a",
   },
   legendContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginVertical: 16,
     gap: 8,
   },
   legendChip: {
     marginHorizontal: 4,
   },
-  section: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
+  upcomingCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    fontWeight: "bold",
+    borderRadius: 24,
+    padding: 16,
+    backgroundColor: "#fff",
   },
-  divider: {
-    marginVertical: 16,
+  upcomingScroll: {
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
   },
-  loader: {
-    marginTop: 20,
+  upcomingItem: {
+    width: 160,
+    padding: 16,
+    marginRight: 12,
+    borderRadius: 16,
+    alignItems: "center",
   },
-  card: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  emptyCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    backgroundColor: "#f5f5f5",
-  },
-  emptyText: {
+  upcomingName: {
     textAlign: "center",
-    color: "#666",
+    marginVertical: 8,
+    fontWeight: "500",
   },
-  cardContent: {
+  selectedDateCard: {
+    margin: 16,
+    marginTop: 0,
+    borderRadius: 24,
+    padding: 16,
+    backgroundColor: "#fff",
+  },
+  emptyDate: {
+    padding: 32,
+    alignItems: "center",
+  },
+  emptyDateText: {
+    marginTop: 16,
+    color: "#666",
+    textAlign: "center",
+  },
+  productCard: {
+    marginBottom: 12,
+    borderRadius: 16,
+    padding: 12,
+  },
+  productInfo: {
     flexDirection: "row",
     alignItems: "center",
   },
-  image: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 16,
-  },
-  textContainer: {
+  productDetails: {
     flex: 1,
+    marginLeft: 8,
   },
-  statusContainer: {
-    marginTop: 8,
+  productName: {
+    marginBottom: 8,
+    fontWeight: "600",
   },
-  statusChip: {
-    alignSelf: "flex-start",
+  productMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  categoryChip: {
+    height: 32,
+    borderRadius: 16,
+  },
+  expiryChip: {
+    height: 32,
+    borderRadius: 16,
   },
 });
