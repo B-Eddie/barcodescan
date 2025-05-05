@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Card,
   Chip,
+  Divider,
   Text,
   useTheme,
 } from "react-native-paper";
@@ -27,6 +28,7 @@ interface ExpiryDate {
   daysUntilExpiry: number;
   imageUrl?: string;
   category?: string;
+  quantity?: number;
 }
 
 export default function CalendarScreen() {
@@ -99,6 +101,7 @@ export default function CalendarScreen() {
               daysUntilExpiry,
               imageUrl: data.imageUrl,
               category: data.category,
+              quantity: data.quantity,
             });
           }
         });
@@ -177,6 +180,10 @@ export default function CalendarScreen() {
     (date) => date.date === selectedDate
   );
 
+  const upcomingExpiries = expiryDates
+    .filter((date) => date.daysUntilExpiry >= 0 && date.daysUntilExpiry <= 7)
+    .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -237,6 +244,58 @@ export default function CalendarScreen() {
           </Chip>
         </View>
 
+        {upcomingExpiries.length > 0 && (
+          <View style={styles.section}>
+            <Text variant="titleLarge" style={styles.sectionTitle}>
+              Upcoming Expiries
+            </Text>
+            {upcomingExpiries.map((date) => (
+              <Card
+                key={date.id}
+                style={styles.card}
+                onPress={() =>
+                  router.push(`/product-detail?barcode=${date.id}`)
+                }
+              >
+                <Card.Content>
+                  <View style={styles.cardContent}>
+                    {date.imageUrl && (
+                      <Image
+                        source={{ uri: date.imageUrl }}
+                        style={styles.image}
+                        contentFit="cover"
+                      />
+                    )}
+                    <View style={styles.textContainer}>
+                      <Text variant="titleMedium">{date.name}</Text>
+                      <View style={styles.statusContainer}>
+                        <Chip
+                          icon={getCategoryIcon(date.category)}
+                          style={[
+                            styles.statusChip,
+                            {
+                              backgroundColor: getExpiryColor(
+                                date.daysUntilExpiry
+                              ),
+                            },
+                          ]}
+                        >
+                          {getExpiryStatus(date.daysUntilExpiry)}
+                        </Chip>
+                      </View>
+                      <Text variant="bodySmall">
+                        {new Date(date.date).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  </View>
+                </Card.Content>
+              </Card>
+            ))}
+          </View>
+        )}
+
+        <Divider style={styles.divider} />
+
         <Text variant="titleLarge" style={styles.sectionTitle}>
           {new Date(selectedDate).toLocaleDateString(undefined, {
             weekday: "long",
@@ -258,7 +317,11 @@ export default function CalendarScreen() {
           </Card>
         ) : (
           filteredDates.map((date) => (
-            <Card key={date.id} style={styles.card}>
+            <Card
+              key={date.id}
+              style={styles.card}
+              onPress={() => router.push(`/product-detail?barcode=${date.id}`)}
+            >
               <Card.Content>
                 <View style={styles.cardContent}>
                   {date.imageUrl && (
@@ -285,6 +348,9 @@ export default function CalendarScreen() {
                         {getExpiryStatus(date.daysUntilExpiry)}
                       </Chip>
                     </View>
+                    {date.quantity && (
+                      <Text variant="bodySmall">Quantity: {date.quantity}</Text>
+                    )}
                   </View>
                 </View>
               </Card.Content>
@@ -324,10 +390,16 @@ const styles = StyleSheet.create({
   legendChip: {
     marginHorizontal: 4,
   },
+  section: {
+    marginBottom: 16,
+  },
   sectionTitle: {
     marginHorizontal: 16,
     marginBottom: 16,
     fontWeight: "bold",
+  },
+  divider: {
+    marginVertical: 16,
   },
   loader: {
     marginTop: 20,
