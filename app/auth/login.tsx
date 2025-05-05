@@ -33,7 +33,7 @@ export default function LoginScreen() {
     try {
       setError("");
       await logIn(email, password);
-      router.replace("/(tabs)");
+      router.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign in");
     } finally {

@@ -1,16 +1,15 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Calendar from "expo-calendar";
-import { BlurView } from "expo-blur";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import NetInfo from "@react-native-community/netinfo";
+import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
+import { get, ref, set } from "firebase/database";
 import { useEffect, useState } from "react";
 import {
   Alert,
-  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -19,16 +18,15 @@ import {
   View,
 } from "react-native";
 import {
+  ActivityIndicator,
   Button,
   Card,
   Chip,
-  Divider,
-  IconButton,
   Text,
   TextInput,
   useTheme,
 } from "react-native-paper";
-import { firebaseApp } from "../firebaseConfig";
+import { auth, database } from "../firebaseConfig";
 
 // Common food expiry estimates (in days)
 const FOOD_EXPIRY_ESTIMATES: Record<string, number> = {
@@ -51,26 +49,49 @@ const FOOD_EXPIRY_ESTIMATES: Record<string, number> = {
   default: 14,
 };
 
+interface ProductData {
+  name: string;
+  expiryDate: string;
+  category: string;
+  quantity: number;
+  imageUrl?: string;
+  brand?: string;
+}
+
+const CATEGORIES = [
+  "dairy",
+  "meat",
+  "fruits",
+  "vegetables",
+  "bakery",
+  "canned",
+  "frozen",
+  "snacks",
+  "other",
+];
+
 export default function ProductScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const params = useLocalSearchParams();
-  const [expiryDate, setExpiryDate] = useState<Date>(new Date());
+  const { barcode, name, brand, imageUrl, category } = useLocalSearchParams();
+  const [productData, setProductData] = useState<ProductData | null>(null);
+  const [productName, setProductName] = useState((name as string) || "");
+  const [expiryDate, setExpiryDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(
+    (category as string) || "other"
+  );
+  const [quantity, setQuantity] = useState("1");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [hasCalendarPermission, setHasCalendarPermission] = useState<
     boolean | null
   >(null);
   const [image, setImage] = useState<string | null>(null);
-  const [productName, setProductName] = useState<string>(
-    (params.name as string) || "Unknown Product"
-  );
-  const [barcode, setBarcode] = useState<string>(params.barcode as string);
-  const [isAddingToCalendar, setIsAddingToCalendar] = useState(false);
-  const [category, setCategory] = useState<string>("default");
-  const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
   const [existingProduct, setExistingProduct] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
+  const MAX_RETRIES = 3;
 
   // Suggested expiry categories
   const categories = [
@@ -84,79 +105,96 @@ export default function ProductScreen() {
     { key: "snacks", label: "Snacks", icon: "cookie" },
   ];
 
+  // Enable offline persistence
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        // Get calendar permissions
-        const { status } = await Calendar.requestCalendarPermissionsAsync();
-        setHasCalendarPermission(status === "granted");
+    // No need to manually enable persistence as it's handled by firestore().settings()
+  }, []);
 
-        // Get image permissions
-        const imagePermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (imagePermission.status !== "granted") {
-          console.warn("Camera roll access is required to add product images.");
-        }
+  // Network status listener
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsOffline(!state.isConnected);
+    });
 
-        // Check if product already exists
-        if (barcode) {
-          const db = getFirestore(firebaseApp);
-          const productRef = doc(db, "products", barcode);
-          const productSnap = await getDoc(productRef);
-
-          if (productSnap.exists()) {
-            const data = productSnap.data();
-            setExistingProduct(data);
-            setProductName(data.name || "Unknown Product");
-            if (data.expiryDate) {
-              setExpiryDate(new Date(data.expiryDate));
-            }
-            if (data.category) {
-              setCategory(data.category);
-            }
-            if (data.imageUrl) {
-              setImage(data.imageUrl);
-            }
-            if (data.quantity) {
-              setQuantity(data.quantity.toString());
-            }
-            if (data.notes) {
-              setNotes(data.notes);
-            }
-            
-            // Notify user
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } else {
-            // Try to predict expiry based on product name
-            predictExpiry(productName);
-          }
-        }
-      } catch (error) {
-        console.error("Error initializing:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    return () => {
+      unsubscribe();
     };
+  }, []);
 
-    fetchData();
-  }, [barcode, productName]);
+  useEffect(() => {
+    if (barcode) {
+      fetchProduct();
+    }
+  }, [barcode]);
+
+  const fetchProduct = async () => {
+    try {
+      setLoading(true);
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) {
+        throw new Error("User not logged in");
+      }
+
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
+      );
+      const productRef = ref(
+        database,
+        `users/${encodedEmail}/products/${barcode}`
+      );
+      const snapshot = await get(productRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setProductData(data);
+        setProductName(data.name);
+        setExpiryDate(new Date(data.expiryDate));
+        setSelectedCategory(data.category);
+        setQuantity(data.quantity.toString());
+        if (data.imageUrl) setImage(data.imageUrl);
+        if (data.notes) setNotes(data.notes);
+        setExistingProduct(data);
+      } else {
+        // Set default expiry date to 7 days from now for new products
+        const defaultExpiryDate = new Date();
+        defaultExpiryDate.setDate(defaultExpiryDate.getDate() + 7);
+        setExpiryDate(defaultExpiryDate);
+      }
+    } catch (error) {
+      console.error("Error fetching product:", error);
+      Alert.alert("Error", "Failed to load product data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const predictExpiry = (name: string) => {
     // Simple prediction logic - in a real app this would be more sophisticated
     const nameLower = name.toLowerCase();
-    
+
     // Try to find a match in our expiry estimates
-    const matchedCategory = Object.keys(FOOD_EXPIRY_ESTIMATES).find(
-      key => nameLower.includes(key)
-    ) || "default";
-    
-    setCategory(matchedCategory);
-    
+    const matchedCategory =
+      Object.keys(FOOD_EXPIRY_ESTIMATES).find((key) =>
+        nameLower.includes(key)
+      ) || "default";
+
+    setSelectedCategory(matchedCategory);
+
     // Set predicted expiry date
     const predictedDays = FOOD_EXPIRY_ESTIMATES[matchedCategory];
     const newDate = new Date();
     newDate.setDate(newDate.getDate() + predictedDays);
     setExpiryDate(newDate);
+
+    // Set productData for new product
+    setProductData({
+      name: name,
+      expiryDate: newDate.toISOString(),
+      category: matchedCategory,
+      quantity: parseInt(quantity) || 1,
+      imageUrl: image,
+      brand: brand,
+    });
   };
 
   const pickImage = async () => {
@@ -187,114 +225,56 @@ export default function ProductScreen() {
   };
 
   const selectCategory = (cat: string) => {
-    setCategory(cat);
-    
+    setSelectedCategory(cat);
+
     // Update expiry date based on category
-    const predictedDays = FOOD_EXPIRY_ESTIMATES[cat] || FOOD_EXPIRY_ESTIMATES.default;
+    const predictedDays =
+      FOOD_EXPIRY_ESTIMATES[cat] || FOOD_EXPIRY_ESTIMATES.default;
     const newDate = new Date();
     newDate.setDate(newDate.getDate() + predictedDays);
     setExpiryDate(newDate);
-    
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const handleAddToCalendar = async () => {
-    if (isAddingToCalendar) return;
-    
-    Keyboard.dismiss();
-    setIsAddingToCalendar(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const handleSave = async () => {
+    if (!productName.trim()) {
+      Alert.alert("Error", "Please enter a product name");
+      return;
+    }
 
     try {
-      // First, ensure we have calendar permissions
-      if (!hasCalendarPermission) {
-        const { status } = await Calendar.requestCalendarPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission Denied",
-            "Calendar access is required to add expiry dates."
-          );
-          return;
-        }
-        setHasCalendarPermission(true);
+      setSaving(true);
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) {
+        throw new Error("User not logged in");
       }
 
-      // Get the default calendar
-      const calendars = await Calendar.getCalendarsAsync(
-        Calendar.EntityTypes.EVENT
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
       );
-      const defaultCalendar =
-        calendars.find((cal) => cal.isPrimary) || calendars[0];
+      const productRef = ref(
+        database,
+        `users/${encodedEmail}/products/${barcode}`
+      );
 
-      if (!defaultCalendar) {
-        Alert.alert(
-          "Error",
-          "No calendar found. Please set up a calendar on your device."
-        );
-        return;
-      }
-
-      // Create the event
-      const eventId = await Calendar.createEventAsync(defaultCalendar.id, {
-        title: `${productName} Expires`,
-        startDate: expiryDate,
-        endDate: expiryDate,
-        alarms: [
-          { relativeOffset: -7 * 24 * 60 }, // 1 week before
-          { relativeOffset: -24 * 60 }, // 1 day before
-        ],
-        notes: `Product: ${productName}\nBarcode: ${barcode}\nQuantity: ${quantity}\n${notes}`,
-      });
-
-      if (!eventId) {
-        throw new Error("Failed to create calendar event");
-      }
-
-      // Store in Firebase
-      const db = getFirestore(firebaseApp);
-      const productRef = doc(db, "products", barcode);
-
-      const productData = {
-        name: productName,
-        barcode: barcode,
+      const productData: ProductData = {
+        name: productName.trim(),
         expiryDate: expiryDate.toISOString().split("T")[0],
-        addedAt: new Date().toISOString(),
-        calendarEventId: eventId,
-        category: category,
+        category: selectedCategory,
         quantity: parseInt(quantity) || 1,
-        notes: notes,
-        ...(image && { imageUrl: image }),
+        imageUrl: imageUrl as string | undefined,
+        brand: brand as string | undefined,
       };
 
-      try {
-        await setDoc(productRef, productData, { merge: true });
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Success", "Expiry date added to calendar and saved!");
-        router.push("/");
-      } catch (firebaseError) {
-        console.error("Firebase error:", firebaseError);
-        
-        // If Firebase fails, try to delete the calendar event
-        try {
-          await Calendar.deleteEventAsync(eventId);
-        } catch (calendarError) {
-          console.error("Failed to delete calendar event:", calendarError);
-        }
-        
-        Alert.alert(
-          "Partial Success",
-          "Expiry date was added to your calendar, but failed to save to the cloud. You can try again later.",
-          [{ text: "OK", onPress: () => router.push("/") }]
-        );
-      }
+      await set(productRef, productData);
+      Alert.alert("Success", "Product saved successfully");
+      router.back();
     } catch (error) {
       console.error("Error saving product:", error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        "Error",
-        "Failed to save product. Please check your internet connection and try again.",
-        [{ text: "OK", onPress: () => setIsAddingToCalendar(false) }]
-      );
+      Alert.alert("Error", "Failed to save product");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -306,30 +286,32 @@ export default function ProductScreen() {
     });
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text>Loading product information...</Text>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading product information...</Text>
+        {isOffline && (
+          <Text style={styles.offlineText}>
+            You're offline. Using cached data if available.
+          </Text>
+        )}
       </View>
     );
   }
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
       keyboardShouldPersistTaps="handled"
     >
       {existingProduct && (
-        <Chip 
-          style={styles.existingChip} 
-          icon="information"
-          mode="outlined"
-        >
+        <Chip style={styles.existingChip} icon="information" mode="outlined">
           This product is already in your database
         </Chip>
       )}
-      
+
       <View style={styles.imageContainer}>
         {image ? (
           <View>
@@ -340,10 +322,7 @@ export default function ProductScreen() {
               transition={200}
             />
             <View style={styles.imageOverlay}>
-              <TouchableOpacity
-                style={styles.imageButton}
-                onPress={pickImage}
-              >
+              <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
                 <BlurView intensity={80} style={styles.blurButton}>
                   <MaterialCommunityIcons
                     name="camera"
@@ -355,10 +334,7 @@ export default function ProductScreen() {
             </View>
           </View>
         ) : (
-          <TouchableOpacity
-            style={styles.imagePlaceholder}
-            onPress={pickImage}
-          >
+          <TouchableOpacity style={styles.imagePlaceholder} onPress={pickImage}>
             <MaterialCommunityIcons
               name="camera-plus"
               size={40}
@@ -374,61 +350,26 @@ export default function ProductScreen() {
           <TextInput
             label="Product Name"
             value={productName}
-            onChangeText={setProductName}
+            onChangeText={(text) => {
+              setProductName(text);
+              setProductData((prev) => (prev ? { ...prev, name: text } : null));
+            }}
             style={styles.input}
-            mode="outlined"
           />
-          
-          <View style={styles.barcodeContainer}>
-            <MaterialCommunityIcons
-              name="barcode"
-              size={20}
-              color={theme.colors.outline}
-            />
-            <Text variant="bodyMedium" style={styles.barcode}>
-              {barcode}
-            </Text>
-          </View>
-          
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Quantity
-          </Text>
-          <View style={styles.quantityContainer}>
-            <IconButton
-              icon="minus"
-              size={20}
-              onPress={() => {
-                const current = parseInt(quantity) || 1;
-                if (current > 1) {
-                  setQuantity((current - 1).toString());
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-              }}
-              disabled={parseInt(quantity) <= 1}
-            />
-            <TextInput
-              value={quantity}
-              onChangeText={setQuantity}
-              style={styles.quantityInput}
-              keyboardType="numeric"
-              mode="outlined"
-            />
-            <IconButton
-              icon="plus"
-              size={20}
-              onPress={() => {
-                const current = parseInt(quantity) || 1;
-                setQuantity((current + 1).toString());
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-            />
-          </View>
-          
+
+          <TextInput
+            label="Quantity"
+            value={quantity}
+            onChangeText={setQuantity}
+            keyboardType="numeric"
+            style={styles.input}
+          />
+
           <Text variant="titleMedium" style={styles.sectionTitle}>
             Food Category
           </Text>
-          <ScrollView 
-            horizontal 
+          <ScrollView
+            horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.categoryScrollView}
           >
@@ -437,7 +378,7 @@ export default function ProductScreen() {
                 <Chip
                   key={cat.key}
                   icon={cat.icon}
-                  selected={category === cat.key}
+                  selected={selectedCategory === cat.key}
                   onPress={() => selectCategory(cat.key)}
                   style={styles.categoryChip}
                   selectedColor={theme.colors.primary}
@@ -447,11 +388,11 @@ export default function ProductScreen() {
               ))}
             </View>
           </ScrollView>
-          
+
           <Text variant="titleMedium" style={styles.sectionTitle}>
             Expiry Date
           </Text>
-          <Pressable 
+          <Pressable
             style={styles.dateContainer}
             onPress={() => setShowDatePicker(true)}
           >
@@ -464,10 +405,15 @@ export default function ProductScreen() {
               {formatDate(expiryDate)}
             </Text>
             <Text variant="bodyMedium" style={styles.daysUntil}>
-              ({Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days)
+              (
+              {Math.ceil(
+                (expiryDate.getTime() - new Date().getTime()) /
+                  (1000 * 60 * 60 * 24)
+              )}{" "}
+              days)
             </Text>
           </Pressable>
-          
+
           {showDatePicker && (
             <DateTimePicker
               value={expiryDate}
@@ -478,7 +424,7 @@ export default function ProductScreen() {
               themeVariant={theme.dark ? "dark" : "light"}
             />
           )}
-          
+
           <TextInput
             label="Notes"
             value={notes}
@@ -494,19 +440,12 @@ export default function ProductScreen() {
       <View style={styles.buttonContainer}>
         <Button
           mode="contained"
-          onPress={handleAddToCalendar}
-          disabled={isAddingToCalendar}
-          loading={isAddingToCalendar}
-          icon={({ size, color }) => (
-            <MaterialCommunityIcons
-              name="calendar-plus"
-              size={size}
-              color={color}
-            />
-          )}
+          onPress={handleSave}
+          loading={saving}
+          disabled={saving}
           style={styles.button}
         >
-          {existingProduct ? "Update Product" : "Add to Calendar"}
+          Save Product
         </Button>
         <Button
           mode="outlined"
@@ -532,6 +471,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#333",
+  },
+  offlineText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
   },
   card: {
     marginBottom: 16,

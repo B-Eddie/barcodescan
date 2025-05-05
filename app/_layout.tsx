@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Tabs, useRouter, useSegments, SplashScreen } from "expo-router";
-import { useTheme } from "react-native-paper";
+import { SplashScreen, Tabs, useRouter, useSegments } from "expo-router";
 import React, { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { PaperProvider } from "react-native-paper";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
-import { View, ActivityIndicator } from "react-native";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -46,104 +47,115 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
 // Root layout
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <GestureHandlerRootView style={styles.container}>
+      <PaperProvider>
+        <AuthProvider>
+          <AuthCheck>
+            <Tabs
+              screenOptions={{
+                headerShown: false,
+                tabBarStyle: {
+                  height: 60,
+                  paddingBottom: 8,
+                  paddingTop: 8,
+                },
+                tabBarActiveTintColor: "#007AFF",
+                tabBarInactiveTintColor: "#8E8E93",
+              }}
+            >
+              <Tabs.Screen
+                name="index"
+                options={{
+                  title: "Home",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="home"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
+                name="scan"
+                options={{
+                  title: "Scan",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="barcode-scan"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
+                name="calendar"
+                options={{
+                  title: "Calendar",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="calendar"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
+                name="settings"
+                options={{
+                  title: "Settings",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="cog"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              {/* Hide these screens from the tab bar but keep them accessible */}
+              <Tabs.Screen
+                name="auth"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="product"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="product-detail"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="manual-entry"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="receipt-scan"
+                options={{
+                  href: null,
+                }}
+              />
+            </Tabs>
+          </AuthCheck>
+        </AuthProvider>
+      </PaperProvider>
+    </GestureHandlerRootView>
   );
 }
 
-// Navigation structure
-function RootLayoutNav() {
-  const theme = useTheme();
-  const { user } = useAuth();
-
-  return (
-    <AuthCheck>
-      <Tabs
-        screenOptions={{
-          tabBarActiveTintColor: theme.colors.primary,
-          tabBarInactiveTintColor: theme.colors.outline,
-          tabBarStyle: {
-            backgroundColor: theme.colors.background,
-          },
-          headerStyle: {
-            backgroundColor: theme.colors.background,
-          },
-          headerTintColor: theme.colors.onBackground,
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: "Home",
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="fridge-outline"
-                size={size}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="scan"
-          options={{
-            title: "Scan",
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="barcode-scan"
-                size={size}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="receipt-scan"
-          options={{
-            title: "Receipt",
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="receipt"
-                size={size}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="calendar"
-          options={{
-            title: "Calendar",
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="calendar-clock"
-                size={size}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="settings"
-          options={{
-            title: "Settings",
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="cog-outline"
-                size={size}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen 
-          name="auth"
-          options={{
-            href: null, // Hide this tab from the tab bar
-          }}
-        />
-      </Tabs>
-    </AuthCheck>
-  );
-}
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});

@@ -1,245 +1,207 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  BarcodeScanningResult,
-  CameraView,
-  useCameraPermissions,
-} from "expo-camera";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
+import { get, ref, update } from "firebase/database";
 import React, { useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import {
-  ActivityIndicator,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  Text,
-  useTheme,
-} from "react-native-paper";
-import { firebaseApp } from "../firebaseConfig";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  getFirestore,
-  query,
-  setDoc,
-  where,
-} from "firebase/firestore";
+import { Alert, Dimensions, StyleSheet, View } from "react-native";
+import { Button, Card, FAB, Text, useTheme } from "react-native-paper";
+import { auth, database } from "../firebaseConfig";
 
 const { width, height } = Dimensions.get("window");
 const SCAN_AREA_SIZE = Math.min(width, height) * 0.7;
 
-type ReceiptItem = {
-  id: string;
+interface ScannedItem {
+  barcode: string;
   name: string;
   quantity: number;
-  price: number;
-  barcode?: string;
-};
+  category: string;
+  expiryDate: string;
+}
 
 export default function ReceiptScanScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [isScanning, setIsScanning] = useState(true);
-  const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(
-    null
-  );
-  const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
+  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const processingRef = useRef(false);
+  const cameraRef = useRef<CameraView>(null);
 
-  useEffect(() => {
-    const checkPermissions = async () => {
-      if (permission?.granted) {
-        setHasPermission(true);
-      } else if (permission === null) {
-        // still loading
-      } else if (permission.canAskAgain) {
-        const { granted } = await requestPermission();
-        setHasPermission(granted);
-      } else {
-        setHasPermission(false);
+  const checkPermissions = async () => {
+    if (!permission?.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert(
+          "Permission Required",
+          "Camera permission is required to scan barcodes."
+        );
+        router.back();
       }
-    };
+    }
+  };
 
-    checkPermissions();
-  }, [permission]);
+  const handleBarCodeScanned = async (barcode: string) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser?.email) {
+      Alert.alert("Error", "You must be logged in to scan products");
+      return;
+    }
 
-  const handleBarCodeScanned = async ({ type, data }: BarcodeScanningResult) => {
-    if (scanned || !isScanning || processingRef.current) return;
-
-    // Prevent scanning the same barcode multiple times
-    if (lastScannedBarcode === data) return;
-    setLastScannedBarcode(data);
-
-    setScanned(true);
-    setIsScanning(false);
-    processingRef.current = true;
-    setIsProcessing(true);
+    // Check if item is already scanned
+    if (scannedItems.some((item) => item.barcode === barcode)) {
+      Alert.alert("Duplicate", "This item has already been scanned");
+      return;
+    }
 
     try {
-      // In a real app, this would connect to a receipt parsing API or OCR service
-      // For demo purposes, we'll simulate receipt parsing with a delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Simulate parsed receipt data
-      const mockItems: ReceiptItem[] = [
-        {
-          id: Math.random().toString(36).substring(7),
-          name: "Organic Milk",
-          quantity: 1,
-          price: 3.99,
-          barcode: "5901234123457",
-        },
-        {
-          id: Math.random().toString(36).substring(7),
-          name: "Whole Wheat Bread",
-          quantity: 2,
-          price: 2.49,
-          barcode: "7501234567890",
-        },
-        {
-          id: Math.random().toString(36).substring(7),
-          name: "Free Range Eggs",
-          quantity: 1,
-          price: 4.99,
-          barcode: "8901234567890",
-        },
-        {
-          id: Math.random().toString(36).substring(7),
-          name: "Organic Avocado",
-          quantity: 3,
-          price: 1.79,
-          barcode: "9901234567890",
-        },
-      ];
-
-      setReceiptItems(mockItems);
-    } catch (error) {
-      console.error("Error processing receipt:", error);
-      Alert.alert(
-        "Error",
-        "Failed to process receipt. Please try again."
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
       );
-    } finally {
-      setIsProcessing(false);
-      processingRef.current = false;
+      // Check if product exists in database
+      const productRef = ref(
+        database,
+        `users/${encodedEmail}/products/${barcode}`
+      );
+      const snapshot = await get(productRef);
+
+      if (snapshot.exists()) {
+        const product = snapshot.val();
+        setScannedItems((prev) => [
+          ...prev,
+          {
+            barcode,
+            name: product.name,
+            quantity: 1,
+            category: product.category,
+            expiryDate: product.expiryDate,
+          },
+        ]);
+      } else {
+        setScannedItems((prev) => [
+          ...prev,
+          {
+            barcode,
+            name: "Unknown Product",
+            quantity: 1,
+            category: "Other",
+            expiryDate: "",
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Error checking product:", error);
+      Alert.alert("Error", "Failed to check product. Please try again.");
     }
   };
 
   const startScanning = () => {
     setIsScanning(true);
-    setScanned(false);
-    setLastScannedBarcode(null);
-    setReceiptItems([]);
-    processingRef.current = false;
   };
 
   const handleAddAllItems = async () => {
-    if (receiptItems.length === 0) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser?.email) {
+      Alert.alert("Error", "You must be logged in to add products");
+      return;
+    }
 
     try {
-      setIsProcessing(true);
-      const db = getFirestore(firebaseApp);
-      
-      // Create a batch to add all items
-      const promises = receiptItems.map(async (item) => {
-        const productRef = doc(db, "products", item.barcode || item.id);
-        
-        // Check if product already exists
-        const productSnap = await getDoc(productRef);
-        
-        // Calculate default expiry date (14 days from now for demonstration)
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + 14);
-        
-        return setDoc(productRef, {
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
+      );
+      const batch = {};
+
+      for (const item of scannedItems) {
+        batch[`users/${encodedEmail}/products/${item.barcode}`] = {
           name: item.name,
-          barcode: item.barcode || item.id,
-          expiryDate: expiryDate.toISOString().split("T")[0],
-          addedAt: new Date().toISOString(),
+          expiryDate: item.expiryDate,
+          category: item.category,
           quantity: item.quantity,
-          price: item.price,
-          fromReceipt: true,
-        }, { merge: true });
-      });
-      
-      await Promise.all(promises);
-      
-      Alert.alert(
-        "Success",
-        `Added ${receiptItems.length} items from your receipt!`,
-        [
-          {
-            text: "OK",
-            onPress: () => router.push("/"),
-          },
-        ]
-      );
+          addedAt: new Date().toISOString(),
+          userId: currentUser.email,
+        };
+      }
+
+      await update(ref(database), batch);
+      setScannedItems([]);
+      Alert.alert("Success", "All items have been added to your list");
+      router.push("/");
     } catch (error) {
-      console.error("Error adding receipt items:", error);
-      Alert.alert(
-        "Error",
-        "Failed to add items from receipt. Please try again."
-      );
-    } finally {
-      setIsProcessing(false);
+      console.error("Error adding items:", error);
+      Alert.alert("Error", "Failed to add items. Please try again.");
     }
   };
 
-  const removeItem = (id: string) => {
-    setReceiptItems(receiptItems.filter(item => item.id !== id));
+  const removeItem = (barcode: string) => {
+    setScannedItems((prev) => prev.filter((item) => item.barcode !== barcode));
   };
 
-  if (permission === null) {
-    return (
-      <View style={styles.container}>
-        <Text>Requesting for camera permission</Text>
-      </View>
-    );
-  }
-
-  if (!permission.granted) {
-    return (
-      <View style={styles.container}>
-        <Text>No access to camera</Text>
-        <Button mode="contained" onPress={requestPermission}>
-          Grant Permission
-        </Button>
-        <Button
-          mode="outlined"
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          Go Back
-        </Button>
-      </View>
-    );
-  }
+  useEffect(() => {
+    checkPermissions();
+  }, []);
 
   return (
     <View style={styles.container}>
-      {isScanning && !scanned && (
-        <CameraView
-          style={StyleSheet.absoluteFillObject}
-          facing="back"
-          onBarcodeScanned={isScanning ? handleBarCodeScanned : undefined}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr", "pdf417", "code128"],
-          }}
+      <View style={styles.scannedItemsContainer}>
+        {scannedItems.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text variant="headlineMedium" style={styles.emptyText}>
+              No items scanned yet
+            </Text>
+            <Text variant="bodyLarge" style={styles.emptySubtext}>
+              Scan items from your receipt to add them
+            </Text>
+          </View>
+        ) : (
+          scannedItems.map((item) => (
+            <Card key={item.barcode} style={styles.card}>
+              <Card.Content>
+                <View style={styles.cardHeader}>
+                  <Text variant="titleLarge">{item.name}</Text>
+                  <Button
+                    icon="delete"
+                    onPress={() => removeItem(item.barcode)}
+                    mode="text"
+                  >
+                    Remove
+                  </Button>
+                </View>
+                <Text variant="bodyMedium">Barcode: {item.barcode}</Text>
+                <Text variant="bodyMedium">Quantity: {item.quantity}</Text>
+                <Text variant="bodyMedium">Category: {item.category}</Text>
+              </Card.Content>
+            </Card>
+          ))
+        )}
+      </View>
+
+      <View style={styles.actionsContainer}>
+        <Button
+          mode="contained"
+          onPress={handleAddAllItems}
+          disabled={scannedItems.length === 0}
+          style={styles.addButton}
         >
+          Add All Items
+        </Button>
+      </View>
+
+      <FAB
+        icon="barcode-scan"
+        style={styles.fab}
+        onPress={() => setIsScanning(true)}
+      />
+
+      {isScanning && (
+        <View style={StyleSheet.absoluteFill}>
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            onBarcodeScanned={handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["ean13", "ean8", "upc_e", "upc_a", "qr"],
+            }}
+          />
           <View style={styles.overlay}>
             <View style={styles.scanArea}>
               <View style={styles.cornerTopLeft} />
@@ -247,9 +209,6 @@ export default function ReceiptScanScreen() {
               <View style={styles.cornerBottomLeft} />
               <View style={styles.cornerBottomRight} />
             </View>
-            <Text style={styles.instructionText}>
-              Scan your receipt barcode or QR code
-            </Text>
             <Button
               mode="contained"
               style={styles.cancelButton}
@@ -258,83 +217,6 @@ export default function ReceiptScanScreen() {
               Cancel
             </Button>
           </View>
-        </CameraView>
-      )}
-
-      {(!isScanning || scanned) && (
-        <View style={styles.resultsContainer}>
-          <Text variant="headlineMedium" style={styles.title}>
-            Receipt Items
-          </Text>
-
-          {isProcessing ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={styles.loadingText}>Processing receipt...</Text>
-            </View>
-          ) : receiptItems.length > 0 ? (
-            <>
-              <ScrollView style={styles.itemList}>
-                {receiptItems.map((item) => (
-                  <Card key={item.id} style={styles.itemCard}>
-                    <Card.Content>
-                      <View style={styles.itemHeader}>
-                        <Text variant="titleMedium">{item.name}</Text>
-                        <TouchableOpacity onPress={() => removeItem(item.id)}>
-                          <MaterialCommunityIcons
-                            name="close-circle"
-                            size={24}
-                            color={theme.colors.error}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                      <Divider style={styles.divider} />
-                      <View style={styles.itemDetails}>
-                        <Chip icon="tag">${item.price.toFixed(2)}</Chip>
-                        <Chip icon="numeric">{item.quantity}x</Chip>
-                        {item.barcode && (
-                          <Chip icon="barcode">{item.barcode.substring(0, 6)}...</Chip>
-                        )}
-                      </View>
-                    </Card.Content>
-                  </Card>
-                ))}
-              </ScrollView>
-              
-              <View style={styles.actionButtons}>
-                <Button
-                  mode="contained"
-                  onPress={handleAddAllItems}
-                  style={styles.actionButton}
-                  disabled={isProcessing}
-                >
-                  Add All Items
-                </Button>
-                <Button
-                  mode="outlined"
-                  onPress={startScanning}
-                  style={styles.actionButton}
-                >
-                  Scan Again
-                </Button>
-              </View>
-            </>
-          ) : (
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons
-                name="receipt"
-                size={64}
-                color={theme.colors.outline}
-              />
-              <Text style={styles.emptyStateText}>No receipt scanned</Text>
-              <Button mode="contained" onPress={startScanning} style={styles.scanButton}>
-                Scan Receipt
-              </Button>
-              <Button mode="outlined" onPress={() => router.push("/")} style={styles.backButton}>
-                Back to Home
-              </Button>
-            </View>
-          )}
         </View>
       )}
     </View>
@@ -344,17 +226,55 @@ export default function ReceiptScanScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+  },
+  scannedItemsContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  emptyText: {
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    textAlign: "center",
+    color: "#666",
+  },
+  card: {
+    marginBottom: 16,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  actionsContainer: {
+    padding: 16,
+  },
+  addButton: {
+    marginBottom: 16,
+  },
+  fab: {
+    position: "absolute",
+    margin: 16,
+    right: 0,
+    bottom: 0,
   },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
   },
   scanArea: {
     width: SCAN_AREA_SIZE,
-    height: SCAN_AREA_SIZE / 2,
+    height: SCAN_AREA_SIZE,
     borderWidth: 2,
     borderColor: "transparent",
     position: "relative",
@@ -399,80 +319,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderColor: "#fff",
   },
-  instructionText: {
-    color: "white",
-    fontSize: 16,
-    marginTop: 20,
-  },
   cancelButton: {
     position: "absolute",
     bottom: 50,
     width: "80%",
     alignSelf: "center",
+    backgroundColor: "#ff4444",
   },
-  backButton: {
-    marginTop: 10,
-  },
-  resultsContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  title: {
-    marginBottom: 16,
-    fontWeight: "bold",
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    marginVertical: 16,
-    color: "#666",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  itemList: {
-    flex: 1,
-  },
-  itemCard: {
-    marginBottom: 12,
-    borderRadius: 8,
-    elevation: 2,
-  },
-  itemHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  divider: {
-    marginVertical: 8,
-  },
-  itemDetails: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  actionButtons: {
-    marginTop: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  actionButton: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-  scanButton: {
-    marginTop: 20,
-    width: "80%",
-  },
-}); 
+});

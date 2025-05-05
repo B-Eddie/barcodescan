@@ -1,30 +1,19 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  writeBatch,
-} from "firebase/firestore";
+import { get, ref, remove, set } from "firebase/database";
 import React, { useEffect, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import {
   Button,
   Card,
   Dialog,
-  Divider,
-  List,
-  Switch as PaperSwitch,
   Portal,
-  SegmentedButtons,
   Surface,
   Text,
   useTheme,
 } from "react-native-paper";
-import { db } from "../firebaseConfig";
+import { auth, database } from "../firebaseConfig";
 
 // Default notification preferences
 const DEFAULT_NOTIFICATION_PREFS = {
@@ -47,6 +36,7 @@ const DEFAULT_APP_PREFS = {
 export default function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const currentUser = auth.currentUser;
 
   // State for notification preferences
   const [notificationPrefs, setNotificationPrefs] = useState(
@@ -74,363 +64,167 @@ export default function SettingsScreen() {
     const loadSettings = async () => {
       try {
         // Load notification preferences
-        const notifPrefsString = await AsyncStorage.getItem(
+        const notificationPrefs = await AsyncStorage.getItem(
           "notificationPrefs"
         );
-        if (notifPrefsString) {
-          setNotificationPrefs(JSON.parse(notifPrefsString));
+        if (notificationPrefs) {
+          setNotificationPrefs(JSON.parse(notificationPrefs));
+        } else {
+          setNotificationPrefs(DEFAULT_NOTIFICATION_PREFS);
         }
 
         // Load app preferences
-        const appPrefsString = await AsyncStorage.getItem("appPrefs");
-        if (appPrefsString) {
-          setAppPrefs(JSON.parse(appPrefsString));
+        const appPrefs = await AsyncStorage.getItem("appPrefs");
+        if (appPrefs) {
+          setAppPrefs(JSON.parse(appPrefs));
+        } else {
+          setAppPrefs(DEFAULT_APP_PREFS);
         }
-
-        // Get stats about data
-        await fetchDataStats();
       } catch (error) {
         console.error("Error loading settings:", error);
+        Alert.alert("Error", "Failed to load settings. Please try again.");
       }
     };
 
     loadSettings();
   }, []);
 
-  const saveNotificationPrefs = async () => {
-    try {
-      await AsyncStorage.setItem(
-        "notificationPrefs",
-        JSON.stringify(notificationPrefs)
-      );
-    } catch (error) {
-      console.error("Error saving notification preferences:", error);
-    }
-  };
-
-  const saveAppPrefs = async () => {
-    try {
-      await AsyncStorage.setItem("appPrefs", JSON.stringify(appPrefs));
-    } catch (error) {
-      console.error("Error saving app preferences:", error);
-    }
-  };
-
   const fetchDataStats = async () => {
+    if (!currentUser?.email) return;
+
     try {
-      const productsRef = collection(db, "products");
-      const querySnapshot = await getDocs(productsRef);
+      const productsRef = ref(database, `users/${currentUser.email}/products`);
+      const snapshot = await get(productsRef);
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      if (snapshot.exists()) {
+        const products = snapshot.val();
+        const totalItems = Object.keys(products).length;
+        const today = new Date().toISOString().split("T")[0];
+        let expiredItems = 0;
 
-      let expiredCount = 0;
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const expiryDate = new Date(data.expiryDate);
-        if (expiryDate < today) {
-          expiredCount++;
-        }
-      });
+        Object.values(products).forEach((product: any) => {
+          if (product.expiryDate && product.expiryDate < today) {
+            expiredItems++;
+          }
+        });
 
-      setTotalItems(querySnapshot.size);
-      setExpiredItems(expiredCount);
-    } catch (error) {
-      console.error("Error fetching data stats:", error);
-    }
-  };
-
-  const requestNotificationPermission = async () => {
-    try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status === "granted") {
-        setNotificationPrefs((prev) => ({ ...prev, enabled: true }));
-        await saveNotificationPrefs();
-      } else {
-        Alert.alert(
-          "Permission Required",
-          "Please enable notifications in your device settings to receive expiry reminders.",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "Open Settings",
-              onPress: () => Linking.openSettings(),
-            },
-          ]
-        );
+        setTotalItems(totalItems);
+        setExpiredItems(expiredItems);
       }
     } catch (error) {
-      console.error("Error requesting notification permission:", error);
-    }
-  };
-
-  const toggleNotifications = async (value: boolean) => {
-    if (value) {
-      await requestNotificationPermission();
-    } else {
-      setNotificationPrefs((prev) => ({ ...prev, enabled: false }));
-      await saveNotificationPrefs();
+      console.error("Error fetching data stats:", error);
+      Alert.alert("Error", "Failed to load data statistics.");
     }
   };
 
   const handleClearAllData = async () => {
+    if (!currentUser?.email) {
+      Alert.alert("Error", "You must be logged in to clear data");
+      return;
+    }
+
     try {
-      setIsProcessing(true);
-      const productsRef = collection(db, "products");
-      const querySnapshot = await getDocs(productsRef);
-
-      const batch = writeBatch(db);
-      querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
-      await batch.commit();
-      await fetchDataStats();
-      Alert.alert("Success", "All data has been cleared.");
+      const productsRef = ref(database, `users/${currentUser.email}/products`);
+      await remove(productsRef);
+      await AsyncStorage.clear();
+      Alert.alert("Success", "All data has been cleared successfully!");
+      fetchDataStats();
     } catch (error) {
       console.error("Error clearing data:", error);
       Alert.alert("Error", "Failed to clear data. Please try again.");
-    } finally {
-      setIsProcessing(false);
-      setClearDataDialog(false);
     }
   };
 
   const handleDeleteExpired = async () => {
+    if (!currentUser?.email) {
+      Alert.alert("Error", "You must be logged in to delete expired items");
+      return;
+    }
+
     try {
-      setIsProcessing(true);
-      const productsRef = collection(db, "products");
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const productsRef = ref(database, `users/${currentUser.email}/products`);
+      const snapshot = await get(productsRef);
+      const today = new Date().toISOString().split("T")[0];
+      const batch: { [key: string]: null } = {};
 
-      const q = query(
-        productsRef,
-        where("expiryDate", "<", today.toISOString().split("T")[0])
-      );
-      const querySnapshot = await getDocs(q);
+      if (snapshot.exists()) {
+        const products = snapshot.val();
+        Object.entries(products).forEach(([key, product]: [string, any]) => {
+          if (product.expiryDate && product.expiryDate < today) {
+            batch[key] = null;
+          }
+        });
 
-      const batch = writeBatch(db);
-      querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
-      await batch.commit();
-      await fetchDataStats();
-      Alert.alert("Success", "Expired items have been deleted.");
+        if (Object.keys(batch).length > 0) {
+          await set(productsRef, batch);
+          Alert.alert(
+            "Success",
+            "Expired items have been deleted successfully!"
+          );
+          fetchDataStats();
+        } else {
+          Alert.alert("Info", "No expired items found.");
+        }
+      }
     } catch (error) {
       console.error("Error deleting expired items:", error);
       Alert.alert("Error", "Failed to delete expired items. Please try again.");
-    } finally {
-      setIsProcessing(false);
-      setDeleteExpiredDialog(false);
     }
   };
 
-  const handleExportData = () => {
-    // TODO: Implement data export
-    Alert.alert("Coming Soon", "Data export feature will be available soon.");
-  };
-
-  const handleImportData = () => {
-    // TODO: Implement data import
-    Alert.alert("Coming Soon", "Data import feature will be available soon.");
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      router.replace("/auth/login");
+    } catch (error) {
+      console.error("Error logging out:", error);
+      Alert.alert("Error", "Failed to log out. Please try again.");
+    }
   };
 
   return (
     <ScrollView style={styles.container}>
       <Surface style={styles.header}>
         <MaterialCommunityIcons
-          name="fridge-outline"
-          size={40}
+          name="cog"
+          size={24}
           color={theme.colors.primary}
         />
-        <Text variant="headlineMedium" style={styles.title}>
-          Food Expiry Tracker
-        </Text>
-        <Text variant="bodyMedium" style={styles.version}>
-          Version 1.0.0
+        <Text variant="headlineMedium" style={styles.headerText}>
+          Settings
         </Text>
       </Surface>
 
       <Card style={styles.card}>
         <Card.Content>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Notifications
-          </Text>
-
-          <List.Item
-            title="Enable Notifications"
-            description="Receive reminders about expiring items"
-            left={(props) => <List.Icon {...props} icon="bell" />}
-            right={(props) => (
-              <PaperSwitch
-                value={notificationPrefs.enabled}
-                onValueChange={toggleNotifications}
-              />
-            )}
-          />
-
-          {notificationPrefs.enabled && (
-            <>
-              <Divider style={styles.divider} />
-              <List.Item
-                title="Days Before Expiry"
-                description="When to notify about expiring items"
-                left={(props) => <List.Icon {...props} icon="clock" />}
-                right={(props) => (
-                  <SegmentedButtons
-                    value={notificationPrefs.expiringSoon.toString()}
-                    onValueChange={(value) => {
-                      setNotificationPrefs((prev) => ({
-                        ...prev,
-                        expiringSoon: parseInt(value),
-                      }));
-                      saveNotificationPrefs();
-                    }}
-                    buttons={[
-                      { value: "3", label: "3" },
-                      { value: "7", label: "7" },
-                      { value: "14", label: "14" },
-                    ]}
-                  />
-                )}
-              />
-            </>
-          )}
-        </Card.Content>
-      </Card>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            App Preferences
-          </Text>
-
-          <List.Item
-            title="Theme"
-            description="Choose your preferred theme"
-            left={(props) => <List.Icon {...props} icon="theme-light-dark" />}
-            right={(props) => (
-              <SegmentedButtons
-                value={appPrefs.theme}
-                onValueChange={(value) => {
-                  setAppPrefs((prev) => ({ ...prev, theme: value }));
-                  saveAppPrefs();
-                }}
-                buttons={[
-                  { value: "light", label: "Light" },
-                  { value: "dark", label: "Dark" },
-                  { value: "auto", label: "Auto" },
-                ]}
-              />
-            )}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Haptic Feedback"
-            description="Enable vibration feedback"
-            left={(props) => <List.Icon {...props} icon="vibrate" />}
-            right={(props) => (
-              <PaperSwitch
-                value={appPrefs.haptics}
-                onValueChange={(value) => {
-                  setAppPrefs((prev) => ({ ...prev, haptics: value }));
-                  saveAppPrefs();
-                }}
-              />
-            )}
-          />
-        </Card.Content>
-      </Card>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Data Management
-          </Text>
-
-          <List.Item
-            title="Total Items"
-            description={`${totalItems} items in your inventory`}
-            left={(props) => <List.Icon {...props} icon="package-variant" />}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Expired Items"
-            description={`${expiredItems} items have expired`}
-            left={(props) => <List.Icon {...props} icon="alert" />}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Clear All Data"
-            description="Remove all items from your inventory"
-            left={(props) => <List.Icon {...props} icon="delete" />}
-            onPress={() => setClearDataDialog(true)}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Delete Expired Items"
-            description="Remove all expired items from your inventory"
-            left={(props) => <List.Icon {...props} icon="delete-clock" />}
+          <Text variant="titleLarge">Data Management</Text>
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text variant="headlineMedium">{totalItems}</Text>
+              <Text variant="bodyMedium">Total Items</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text variant="headlineMedium">{expiredItems}</Text>
+              <Text variant="bodyMedium">Expired Items</Text>
+            </View>
+          </View>
+          <Button
+            mode="contained"
             onPress={() => setDeleteExpiredDialog(true)}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Export Data"
-            description="Backup your inventory data"
-            left={(props) => <List.Icon {...props} icon="export" />}
-            onPress={handleExportData}
-          />
-
-          <Divider style={styles.divider} />
-
-          <List.Item
-            title="Import Data"
-            description="Restore your inventory data"
-            left={(props) => <List.Icon {...props} icon="import" />}
-            onPress={handleImportData}
-          />
+            style={styles.button}
+          >
+            Delete Expired Items
+          </Button>
+          <Button
+            mode="outlined"
+            onPress={() => setClearDataDialog(true)}
+            style={styles.button}
+          >
+            Clear All Data
+          </Button>
         </Card.Content>
       </Card>
 
-      <View style={styles.aboutSection}>
-        <Button
-          mode="text"
-          onPress={() => Linking.openURL("https://example.com/privacy")}
-          style={styles.aboutButton}
-        >
-          Privacy Policy
-        </Button>
-        <Button
-          mode="text"
-          onPress={() => Linking.openURL("https://example.com/terms")}
-          style={styles.aboutButton}
-        >
-          Terms of Service
-        </Button>
-        <Button
-          mode="text"
-          onPress={() => Linking.openURL("https://example.com/help")}
-          style={styles.aboutButton}
-        >
-          Help & Support
-        </Button>
-      </View>
-
-      {/* Confirmation Dialogs */}
       <Portal>
         <Dialog
           visible={clearDataDialog}
@@ -438,21 +232,14 @@ export default function SettingsScreen() {
         >
           <Dialog.Title>Clear All Data</Dialog.Title>
           <Dialog.Content>
-            <Text variant="bodyMedium">
-              Are you sure you want to delete all items from your inventory?
-              This action cannot be undone.
+            <Text>
+              Are you sure you want to clear all your data? This action cannot
+              be undone.
             </Text>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setClearDataDialog(false)}>Cancel</Button>
-            <Button
-              onPress={handleClearAllData}
-              textColor={theme.colors.error}
-              loading={isProcessing}
-              disabled={isProcessing}
-            >
-              Delete All
-            </Button>
+            <Button onPress={handleClearAllData}>Clear</Button>
           </Dialog.Actions>
         </Dialog>
 
@@ -462,26 +249,28 @@ export default function SettingsScreen() {
         >
           <Dialog.Title>Delete Expired Items</Dialog.Title>
           <Dialog.Content>
-            <Text variant="bodyMedium">
-              Are you sure you want to delete all expired items from your
-              inventory? This action cannot be undone.
+            <Text>
+              Are you sure you want to delete all expired items? This action
+              cannot be undone.
             </Text>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setDeleteExpiredDialog(false)}>
               Cancel
             </Button>
-            <Button
-              onPress={handleDeleteExpired}
-              textColor={theme.colors.error}
-              loading={isProcessing}
-              disabled={isProcessing}
-            >
-              Delete Expired
-            </Button>
+            <Button onPress={handleDeleteExpired}>Delete</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <Card style={styles.card}>
+        <Card.Content>
+          <Text variant="titleMedium">Account</Text>
+          <Button mode="outlined" onPress={handleLogout} style={styles.button}>
+            Logout
+          </Button>
+        </Card.Content>
+      </Card>
     </ScrollView>
   );
 }
@@ -489,40 +278,43 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    paddingTop: 16,
+    paddingBottom: 16,
   },
-  header: {
-    marginBottom: 16,
-    padding: 24,
-    alignItems: "center",
-    elevation: 0,
+  content: {
+    flex: 1,
+    padding: 16,
   },
-  title: {
-    fontWeight: "bold",
-    marginTop: 8,
+  section: {
+    marginBottom: 24,
   },
-  version: {
-    color: "#666",
-    marginTop: 4,
+  sectionTitle: {
+    marginBottom: 8,
   },
   card: {
     marginBottom: 16,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    elevation: 2,
   },
-  sectionTitle: {
-    fontWeight: "bold",
-    marginBottom: 16,
+  button: {
+    marginTop: 16,
   },
-  divider: {
-    marginVertical: 8,
+  logoutButton: {
+    marginTop: 24,
   },
-  aboutSection: {
-    marginVertical: 16,
+  header: {
+    padding: 16,
+    flexDirection: "row",
     alignItems: "center",
+    elevation: 4,
   },
-  aboutButton: {
-    marginVertical: 4,
+  headerText: {
+    marginLeft: 16,
+  },
+  statsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginVertical: 16,
+  },
+  statItem: {
+    alignItems: "center",
   },
 });

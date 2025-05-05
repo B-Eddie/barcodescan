@@ -1,15 +1,14 @@
 // firebaseConfig.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApps, initializeApp } from 'firebase/app';
 import {
+  Auth,
   createUserWithEmailAndPassword,
-  getReactNativePersistence,
   initializeAuth,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   updateProfile
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { Database, get, getDatabase, ref, set } from 'firebase/database';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -24,23 +23,48 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+let app;
+try {
+  if (getApps().length === 0) {
+    app = initializeApp(firebaseConfig);
+    console.log('Firebase initialized successfully');
+  } else {
+    app = getApps()[0];
+    console.log('Using existing Firebase app');
+  }
+} catch (error) {
+  console.error('Error initializing Firebase:', error);
+  throw error;
+}
 
-// Initialize Auth with persistence
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+// Initialize Auth
+let auth: Auth;
+try {
+  auth = initializeAuth(app);
+  console.log('Auth initialized successfully');
+} catch (error) {
+  console.error('Error initializing Auth:', error);
+  throw error;
+}
 
-// Initialize Firestore
-const db = getFirestore(app);
+// Initialize Realtime Database
+let database: Database;
+try {
+  database = getDatabase(app);
+  console.log('Database initialized successfully');
+} catch (error) {
+  console.error('Error initializing Database:', error);
+  throw error;
+}
 
-// Authentication helper functions
+// Export the instances
+export { app, auth, database };
+
+// Auth functions
 export const signUp = async (email: string, password: string, displayName: string) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    if (userCredential.user) {
-      await updateProfile(userCredential.user, { displayName });
-    }
+    await updateProfile(userCredential.user, { displayName });
     return userCredential.user;
   } catch (error) {
     console.error('Error signing up:', error);
@@ -76,4 +100,25 @@ export const resetPassword = async (email: string) => {
   }
 };
 
-export { auth, db };
+// Database functions
+export const getProduct = async (barcode: string) => {
+  try {
+    const productRef = ref(database, `products/${barcode}`);
+    const snapshot = await get(productRef);
+    return snapshot.exists() ? snapshot.val() : null;
+  } catch (error) {
+    console.error('Error getting product:', error);
+    throw error;
+  }
+};
+
+export const saveProduct = async (barcode: string, productData: any) => {
+  try {
+    const productRef = ref(database, `products/${barcode}`);
+    await set(productRef, productData);
+    return true;
+  } catch (error) {
+    console.error('Error saving product:', error);
+    throw error;
+  }
+};

@@ -1,18 +1,24 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { get, ref } from "firebase/database";
+import { useCallback, useEffect, useState } from "react";
 import {
-  collection,
-  getDocs,
-  getFirestore,
-  orderBy,
-  query,
-  where,
-} from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { Calendar as RNCalendar } from "react-native-calendars";
-import { Card, Text, useTheme } from "react-native-paper";
-import { firebaseApp } from "../firebaseConfig";
+import {
+  ActivityIndicator,
+  Card,
+  Chip,
+  Text,
+  useTheme,
+} from "react-native-paper";
+import { auth, database } from "../firebaseConfig";
 
 interface ExpiryDate {
   id: string;
@@ -20,6 +26,7 @@ interface ExpiryDate {
   date: string;
   daysUntilExpiry: number;
   imageUrl?: string;
+  category?: string;
 }
 
 export default function CalendarScreen() {
@@ -28,135 +35,263 @@ export default function CalendarScreen() {
   const [expiryDates, setExpiryDates] = useState<ExpiryDate[]>([]);
   const [markedDates, setMarkedDates] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
 
-  useEffect(() => {
-    const fetchExpiryDates = async () => {
-      try {
-        const db = getFirestore(firebaseApp);
-        const productsRef = collection(db, "products");
+  // Cache keys
+  const CACHE_KEY = "calendar_dates_cache";
+  const CACHE_TIMESTAMP_KEY = "calendar_dates_cache_timestamp";
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-        // Get current date
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        // Query products with expiry dates in the future
-        const q = query(
-          productsRef,
-          where("expiryDate", ">=", today.toISOString().split("T")[0]),
-          orderBy("expiryDate", "asc")
-        );
-
-        const querySnapshot = await getDocs(q);
-        const products: ExpiryDate[] = [];
-
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          const expiryDate = new Date(data.expiryDate);
-          const daysUntilExpiry = Math.ceil(
-            (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-          );
-
-          products.push({
-            id: doc.id,
-            name: data.name || "Unknown Product",
-            date: data.expiryDate,
-            daysUntilExpiry: daysUntilExpiry,
-            imageUrl: data.imageUrl,
-          });
-        });
-
-        setExpiryDates(products);
-
-        // Create marked dates for the calendar
-        const marks = products.reduce((acc, item) => {
-          acc[item.date] = {
-            marked: true,
-            dotColor:
-              item.daysUntilExpiry <= 3
-                ? theme.colors.error
-                : theme.colors.tertiary,
-          };
-          return acc;
-        }, {} as any);
-
-        setMarkedDates(marks);
-      } catch (error) {
-        console.error("Error fetching expiry dates:", error);
-      } finally {
-        setLoading(false);
+  const fetchExpiryDates = async (isRefreshing = false) => {
+    try {
+      if (isRefreshing) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
-    };
 
-    fetchExpiryDates();
-  }, [theme.colors]);
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Check cache first
+      const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+      const cacheTimestamp = await AsyncStorage.getItem(CACHE_TIMESTAMP_KEY);
+      const now = Date.now();
+
+      if (
+        cachedData &&
+        cacheTimestamp &&
+        now - parseInt(cacheTimestamp) < CACHE_DURATION
+      ) {
+        const dates = JSON.parse(cachedData);
+        setExpiryDates(dates);
+        updateMarkedDates(dates);
+        return;
+      }
+
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
+      );
+
+      const productsRef = ref(database, `users/${encodedEmail}/products`);
+      const snapshot = await get(productsRef);
+
+      const dates: ExpiryDate[] = [];
+      if (snapshot.exists()) {
+        snapshot.forEach((childSnapshot) => {
+          const data = childSnapshot.val();
+          if (data && data.expiryDate) {
+            const daysUntilExpiry = Math.ceil(
+              (new Date(data.expiryDate).getTime() - new Date().getTime()) /
+                (1000 * 60 * 60 * 24)
+            );
+            dates.push({
+              id: childSnapshot.key || "",
+              name: data.name,
+              date: data.expiryDate,
+              daysUntilExpiry,
+              imageUrl: data.imageUrl,
+              category: data.category,
+            });
+          }
+        });
+      }
+
+      dates.sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(dates));
+      await AsyncStorage.setItem(CACHE_TIMESTAMP_KEY, now.toString());
+
+      setExpiryDates(dates);
+      updateMarkedDates(dates);
+    } catch (error) {
+      console.error("Error fetching expiry dates:", error);
+      Alert.alert("Error", "Failed to load expiry dates. Please try again.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const updateMarkedDates = (dates: ExpiryDate[]) => {
+    const marked: any = {};
+    dates.forEach((date) => {
+      marked[date.date] = {
+        selected: true,
+        selectedColor: getExpiryColor(date.daysUntilExpiry),
+        dotColor: getExpiryColor(date.daysUntilExpiry),
+        marked: true,
+      };
+    });
+    setMarkedDates(marked);
+  };
 
   const getExpiryColor = (days: number) => {
+    if (days < 0) return theme.colors.error;
     if (days <= 3) return theme.colors.error;
-    if (days <= 7) return theme.colors.tertiary;
+    if (days <= 7) return theme.colors.warning;
     return theme.colors.primary;
   };
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <Text>Loading expiry dates...</Text>
-      </View>
-    );
-  }
+  const getExpiryStatus = (days: number) => {
+    if (days < 0) return "Expired";
+    if (days === 0) return "Expires Today";
+    if (days === 1) return "Expires Tomorrow";
+    return `Expires in ${days} days`;
+  };
+
+  const getCategoryIcon = (category?: string) => {
+    const icons: Record<string, string> = {
+      dairy: "cheese",
+      meat: "food-steak",
+      fruits: "fruit-watermelon",
+      vegetables: "carrot",
+      bakery: "bread-slice",
+      canned: "food-variant",
+      frozen: "snowflake",
+      snacks: "cookie",
+      default: "food",
+    };
+    return icons[category || "default"] || "food";
+  };
+
+  useEffect(() => {
+    fetchExpiryDates();
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchExpiryDates(true);
+  }, []);
+
+  const filteredDates = expiryDates.filter(
+    (date) => date.date === selectedDate
+  );
 
   return (
     <View style={styles.container}>
-      <RNCalendar
-        markedDates={markedDates}
-        theme={{
-          todayTextColor: theme.colors.primary,
-          selectedDayBackgroundColor: theme.colors.primary,
-          dotColor: theme.colors.primary,
-        }}
-      />
-      <View style={styles.listContainer}>
-        <Text variant="headlineMedium" style={styles.title}>
-          Upcoming Expiries
+      <ScrollView
+        style={styles.listContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        <View style={styles.calendarContainer}>
+          <RNCalendar
+            markedDates={markedDates}
+            markingType="dot"
+            onDayPress={(day) => setSelectedDate(day.dateString)}
+            theme={{
+              selectedDayBackgroundColor: theme.colors.primary,
+              todayTextColor: theme.colors.primary,
+              dotColor: theme.colors.primary,
+              arrowColor: theme.colors.primary,
+              monthTextColor: theme.colors.primary,
+              textMonthFontWeight: "bold",
+              textDayHeaderFontWeight: "500",
+              "stylesheet.calendar.header": {
+                dayTextAtIndex0: {
+                  color: theme.colors.error,
+                },
+                dayTextAtIndex6: {
+                  color: theme.colors.primary,
+                },
+              },
+            }}
+          />
+        </View>
+
+        <View style={styles.legendContainer}>
+          <Chip
+            icon="alert"
+            style={[styles.legendChip, { backgroundColor: theme.colors.error }]}
+          >
+            Expired/Urgent
+          </Chip>
+          <Chip
+            icon="clock"
+            style={[
+              styles.legendChip,
+              { backgroundColor: theme.colors.warning },
+            ]}
+          >
+            Soon
+          </Chip>
+          <Chip
+            icon="check"
+            style={[
+              styles.legendChip,
+              { backgroundColor: theme.colors.primary },
+            ]}
+          >
+            Good
+          </Chip>
+        </View>
+
+        <Text variant="titleLarge" style={styles.sectionTitle}>
+          {new Date(selectedDate).toLocaleDateString(undefined, {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}
         </Text>
-        {expiryDates.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No upcoming expiries</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Scan a product and add an expiry date to see it here
-            </Text>
-          </View>
+
+        {loading ? (
+          <ActivityIndicator size="large" style={styles.loader} />
+        ) : filteredDates.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <Card.Content>
+              <Text variant="bodyLarge" style={styles.emptyText}>
+                No items expiring on this date
+              </Text>
+            </Card.Content>
+          </Card>
         ) : (
-          expiryDates.map((item) => (
-            <Card key={item.id} style={styles.card}>
+          filteredDates.map((date) => (
+            <Card key={date.id} style={styles.card}>
               <Card.Content>
                 <View style={styles.cardContent}>
-                  <View style={styles.productInfo}>
-                    {item.imageUrl && (
-                      <Image
-                        source={{ uri: item.imageUrl }}
-                        style={styles.productImage}
-                        contentFit="cover"
-                      />
-                    )}
-                    <View>
-                      <Text variant="titleMedium">{item.name}</Text>
-                      <Text variant="bodyMedium">
-                        Expires: {new Date(item.date).toLocaleDateString()}
-                      </Text>
+                  {date.imageUrl && (
+                    <Image
+                      source={{ uri: date.imageUrl }}
+                      style={styles.image}
+                      contentFit="cover"
+                    />
+                  )}
+                  <View style={styles.textContainer}>
+                    <Text variant="titleMedium">{date.name}</Text>
+                    <View style={styles.statusContainer}>
+                      <Chip
+                        icon={getCategoryIcon(date.category)}
+                        style={[
+                          styles.statusChip,
+                          {
+                            backgroundColor: getExpiryColor(
+                              date.daysUntilExpiry
+                            ),
+                          },
+                        ]}
+                      >
+                        {getExpiryStatus(date.daysUntilExpiry)}
+                      </Chip>
                     </View>
                   </View>
-                  <Text
-                    variant="titleLarge"
-                    style={{ color: getExpiryColor(item.daysUntilExpiry) }}
-                  >
-                    {item.daysUntilExpiry} days
-                  </Text>
                 </View>
               </Card.Content>
             </Card>
           ))
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -168,43 +303,72 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     flex: 1,
-    padding: 16,
   },
-  title: {
+  calendarContainer: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  legendContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginVertical: 16,
+    gap: 8,
+  },
+  legendChip: {
+    marginHorizontal: 4,
+  },
+  sectionTitle: {
+    marginHorizontal: 16,
     marginBottom: 16,
+    fontWeight: "bold",
+  },
+  loader: {
+    marginTop: 20,
   },
   card: {
+    marginHorizontal: 16,
     marginBottom: 12,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  emptyCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  emptyText: {
+    textAlign: "center",
+    color: "#666",
   },
   cardContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
   },
-  productInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  image: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginRight: 16,
   },
-  productImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
+  textContainer: {
+    flex: 1,
   },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+  statusContainer: {
+    marginTop: 8,
   },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 8,
-    color: "#666",
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: "#999",
-    textAlign: "center",
+  statusChip: {
+    alignSelf: "flex-start",
   },
 });
