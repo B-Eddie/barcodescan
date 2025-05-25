@@ -32,6 +32,25 @@ interface Product {
   imageUrl?: string;
   brand?: string;
   calendarEventId?: string;
+  // Nutritional information
+  nutritionInfo?: {
+    caloriesPerServing?: number;
+    servingSize?: string;
+    carbs?: {
+      amount: number;
+      dailyValue: number;
+    };
+    protein?: {
+      amount: number;
+      dailyValue: number;
+    };
+    fat?: {
+      amount: number;
+      dailyValue: number;
+    };
+  };
+  ingredients?: string[];
+  ingredientsImageUrl?: string;
 }
 
 export default function ProductDetailScreen() {
@@ -286,6 +305,90 @@ export default function ProductDetailScreen() {
                   Quantity: {product.quantity}
                 </Text>
               </View>
+
+              {/* Nutritional Information Section */}
+              {product.nutritionInfo && (
+                <View style={styles.nutritionSection}>
+                  <Text variant="titleMedium" style={styles.sectionTitle}>
+                    Nutritional Information
+                  </Text>
+                  <View style={styles.nutritionGrid}>
+                    <View style={styles.nutritionItem}>
+                      <Text style={styles.nutritionLabel}>Calories</Text>
+                      <Text style={styles.nutritionValue}>
+                        {product.nutritionInfo.caloriesPerServing || '?'} kcal
+                      </Text>
+                      <Text style={styles.servingSize}>
+                        per {product.nutritionInfo.servingSize || 'serving'}
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.nutritionItem}>
+                      <Text style={styles.nutritionLabel}>Carbs</Text>
+                      <Text style={styles.nutritionValue}>
+                        {product.nutritionInfo.carbs?.amount || '?'}g
+                      </Text>
+                      <Text style={styles.dailyValue}>
+                        {product.nutritionInfo.carbs?.dailyValue || '?'}% DV
+                      </Text>
+                    </View>
+
+                    <View style={styles.nutritionItem}>
+                      <Text style={styles.nutritionLabel}>Protein</Text>
+                      <Text style={styles.nutritionValue}>
+                        {product.nutritionInfo.protein?.amount || '?'}g
+                      </Text>
+                      <Text style={styles.dailyValue}>
+                        {product.nutritionInfo.protein?.dailyValue || '?'}% DV
+                      </Text>
+                    </View>
+
+                    <View style={styles.nutritionItem}>
+                      <Text style={styles.nutritionLabel}>Fat</Text>
+                      <Text style={styles.nutritionValue}>
+                        {product.nutritionInfo.fat?.amount || '?'}g
+                      </Text>
+                      <Text style={styles.dailyValue}>
+                        {product.nutritionInfo.fat?.dailyValue || '?'}% DV
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Ingredients Section */}
+              <View style={styles.ingredientsSection}>
+                <Text variant="titleMedium" style={styles.sectionTitle}>
+                  Ingredients
+                </Text>
+                {product.ingredientsImageUrl ? (
+                  <Image
+                    source={{ uri: product.ingredientsImageUrl }}
+                    style={styles.ingredientsImage}
+                    contentFit="contain"
+                  />
+                ) : product.ingredients ? (
+                  <View style={styles.ingredientsList}>
+                    {product.ingredients.map((ingredient, index) => (
+                      <Text key={index} style={styles.ingredientItem}>
+                        • {ingredient}
+                      </Text>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.noIngredientsContainer}>
+                    <IconButton
+                      icon="camera"
+                      size={32}
+                      iconColor={theme.colors.primary}
+                      onPress={() => router.push(`/scan-ingredients?productId=${product.id}`)}
+                    />
+                    <Text style={styles.noIngredientsText}>
+                      No ingredients information available
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </Surface>
 
@@ -317,6 +420,25 @@ export default function ProductDetailScreen() {
               icon="arrow-left"
             >
               Go Back
+            </Button>
+          </View>
+
+          <View style={styles.actions}>
+            <Button
+              mode="contained"
+              onPress={handleCalendarToggle}
+              style={styles.actionButton}
+              icon="calendar"
+            >
+              Add to Calendar
+            </Button>
+            <Button
+              mode="contained"
+              onPress={() => router.push(`/scan-ingredients?productId=${product.id}`)}
+              style={styles.actionButton}
+              icon="format-list-bulleted"
+            >
+              Scan Ingredients
             </Button>
           </View>
         </Animated.View>
@@ -426,5 +548,95 @@ const styles = StyleSheet.create({
   calendarButton: {
     borderRadius: 16,
     backgroundColor: "#4CAF50",
+  },
+  nutritionSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  nutritionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  nutritionItem: {
+    width: '48%',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  nutritionLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+  nutritionValue: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  servingSize: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  dailyValue: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  ingredientsSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  ingredientsImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  ingredientsList: {
+    marginTop: 12,
+  },
+  ingredientItem: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  noIngredientsContainer: {
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 24,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+  },
+  noIngredientsText: {
+    marginTop: 8,
+    marginBottom: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  scanButton: {
+    marginTop: 8,
+  },
+  sectionTitle: {
+    marginBottom: 12,
+    color: '#1a1a1a',
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
   },
 });

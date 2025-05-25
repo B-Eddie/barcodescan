@@ -1,24 +1,48 @@
 import { CameraView } from "expo-camera";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { get, ref } from "firebase/database";
 import { useEffect, useState } from "react";
 import { Alert, Animated, Dimensions, StyleSheet, View } from "react-native";
 import {
-  ActivityIndicator,
-  Button,
-  IconButton,
-  Surface,
-  Text,
-  useTheme,
+    ActivityIndicator,
+    Button,
+    IconButton,
+    Surface,
+    Text,
+    useTheme,
 } from "react-native-paper";
-import { auth, database } from "../firebaseConfig";
+import { auth } from "../firebaseConfig";
 
 interface ProductInfo {
   product_name: string;
   brands?: string;
   image_url?: string;
   categories_tags?: string[];
+  nutriments?: {
+    energy_100g?: number;
+    carbohydrates_100g?: number;
+    proteins_100g?: number;
+    fat_100g?: number;
+    serving_size?: string;
+  };
+  ingredients_text?: string;
+  nutritionInfo?: {
+    caloriesPerServing?: number;
+    servingSize?: string;
+    carbs?: {
+      amount: number;
+      dailyValue: number;
+    };
+    protein?: {
+      amount: number;
+      dailyValue: number;
+    };
+    fat?: {
+      amount: number;
+      dailyValue: number;
+    };
+  };
+  ingredients?: string[];
 }
 
 export default function ScanScreen() {
@@ -71,8 +95,38 @@ export default function ScanScreen() {
           brand: data.product.brands,
           category: data.product.categories_tags?.[0],
           image: data.product.image_url,
+          nutrition: data.product.nutriments,
+          ingredients: data.product.ingredients_text,
         });
-        return data.product;
+
+        // Process nutritional information
+        const nutritionInfo = data.product.nutriments ? {
+          caloriesPerServing: data.product.nutriments.energy_100g,
+          servingSize: data.product.nutriments.serving_size || "100g",
+          carbs: {
+            amount: data.product.nutriments.carbohydrates_100g,
+            dailyValue: Math.round((data.product.nutriments.carbohydrates_100g || 0) / 275 * 100), // Based on 275g daily value
+          },
+          protein: {
+            amount: data.product.nutriments.proteins_100g,
+            dailyValue: Math.round((data.product.nutriments.proteins_100g || 0) / 50 * 100), // Based on 50g daily value
+          },
+          fat: {
+            amount: data.product.nutriments.fat_100g,
+            dailyValue: Math.round((data.product.nutriments.fat_100g || 0) / 65 * 100), // Based on 65g daily value
+          },
+        } : undefined;
+
+        // Process ingredients
+        const ingredients = data.product.ingredients_text
+          ? data.product.ingredients_text.split(",").map((i: string) => i.trim())
+          : undefined;
+
+        return {
+          ...data.product,
+          nutritionInfo,
+          ingredients,
+        };
       }
       console.log("[Scan] Product not found in Open Food Facts");
       return null;
@@ -83,67 +137,53 @@ export default function ScanScreen() {
   };
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (loading) return;
-
     try {
-      console.log(`[Scan] Barcode scanned: ${data}`);
-      setLoading(true);
       setScanning(false);
+      setLoading(true);
 
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
-        console.log("[Scan] User not logged in");
         Alert.alert("Error", "You must be logged in to scan products");
         return;
       }
 
-      // Check if product already exists
-      const encodedEmail = encodeURIComponent(
-        currentUser.email.replace(/\./g, ",")
-      );
-      const productRef = ref(
-        database,
-        `users/${encodedEmail}/products/${data}`
-      );
-      const snapshot = await get(productRef);
-
-      if (snapshot.exists()) {
-        console.log("[Scan] Product exists in database:", snapshot.val());
-        router.push(`/product-detail?barcode=${data}`);
+      const productInfo = await fetchProductInfo(data);
+      if (!productInfo) {
+        Alert.alert(
+          "Product Not Found",
+          "Would you like to add it manually?",
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => setScanning(true),
+            },
+            {
+              text: "Add Manually",
+              onPress: () => router.push("/manual-entry"),
+            },
+          ]
+        );
         return;
       }
 
-      // Fetch product info from Open Food Facts
-      const productInfo = await fetchProductInfo(data);
-
-      if (productInfo) {
-        console.log("[Scan] Navigating to product creation with data:", {
+      // Navigate to product screen with the fetched information
+      router.push({
+        pathname: "/product",
+        params: {
           barcode: data,
           name: productInfo.product_name,
-          brand: productInfo.brands || "",
+          brand: productInfo.brands,
           imageUrl: productInfo.image_url,
-          category: productInfo.categories_tags?.[0] || "other",
-        });
-        router.push({
-          pathname: "/product",
-          params: {
-            barcode: data,
-            name: productInfo.product_name,
-            brand: productInfo.brands || "",
-            imageUrl: productInfo.image_url,
-            category: productInfo.categories_tags?.[0] || "other",
-          },
-        });
-      } else {
-        console.log("[Scan] Product not found, navigating to manual entry");
-        router.push({
-          pathname: "/manual-entry",
-          params: { barcode: data },
-        });
-      }
+          category: productInfo.categories_tags?.[0],
+          nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
+          ingredients: JSON.stringify(productInfo.ingredients),
+        },
+      });
     } catch (error) {
-      console.error("[Scan] Error processing barcode:", error);
+      console.error("Error handling barcode:", error);
       Alert.alert("Error", "Failed to process barcode. Please try again.");
+      setScanning(true);
     } finally {
       setLoading(false);
     }

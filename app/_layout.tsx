@@ -3,7 +3,7 @@ import { SplashScreen, Tabs, useRouter, useSegments } from "expo-router";
 import React, { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { PaperProvider } from "react-native-paper";
+import { PaperProvider, useTheme } from "react-native-paper";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 
 // Keep the splash screen visible while we fetch resources
@@ -46,6 +46,8 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
 
 // Root layout
 export default function RootLayout() {
+  const theme = useTheme();
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <PaperProvider>
@@ -58,9 +60,15 @@ export default function RootLayout() {
                   height: 60,
                   paddingBottom: 8,
                   paddingTop: 8,
+                  backgroundColor: theme.colors.background,
+                  borderTopColor: theme.colors.outline,
                 },
-                tabBarActiveTintColor: "#007AFF",
-                tabBarInactiveTintColor: "#8E8E93",
+                tabBarActiveTintColor: theme.colors.primary,
+                tabBarInactiveTintColor: theme.colors.outline,
+                headerStyle: {
+                  backgroundColor: theme.colors.background,
+                },
+                headerTintColor: theme.colors.onBackground,
               }}
             >
               <Tabs.Screen
@@ -77,12 +85,38 @@ export default function RootLayout() {
                 }}
               />
               <Tabs.Screen
+                name="recipes"
+                options={{
+                  title: "Recipes",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="food"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
                 name="scan"
                 options={{
                   title: "Scan",
                   tabBarIcon: ({ color, size }) => (
                     <MaterialCommunityIcons
                       name="barcode-scan"
+                      size={size}
+                      color={color}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
+                name="profile"
+                options={{
+                  title: "Profile",
+                  tabBarIcon: ({ color, size }) => (
+                    <MaterialCommunityIcons
+                      name="account"
                       size={size}
                       color={color}
                     />
@@ -142,6 +176,12 @@ export default function RootLayout() {
               />
               <Tabs.Screen
                 name="receipt-scan"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="scan-ingredients"
                 options={{
                   href: null,
                 }}

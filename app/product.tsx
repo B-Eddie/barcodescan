@@ -9,22 +9,22 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { get, ref, set } from "firebase/database";
 import { useEffect, useState } from "react";
 import {
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
+    Alert,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import {
-  ActivityIndicator,
-  Button,
-  Card,
-  Chip,
-  Text,
-  TextInput,
-  useTheme,
+    ActivityIndicator,
+    Button,
+    Card,
+    Chip,
+    Text,
+    TextInput,
+    useTheme,
 } from "react-native-paper";
 import { auth, database } from "../firebaseConfig";
 import { updateCalendarEvent } from "../utils/calendar";
@@ -58,6 +58,24 @@ interface ProductData {
   imageUrl?: string;
   brand?: string;
   calendarEventId?: string;
+  nutritionInfo?: {
+    caloriesPerServing?: number;
+    servingSize?: string;
+    carbs?: {
+      amount: number;
+      dailyValue: number;
+    };
+    protein?: {
+      amount: number;
+      dailyValue: number;
+    };
+    fat?: {
+      amount: number;
+      dailyValue: number;
+    };
+  };
+  ingredients?: string[];
+  ingredientsImageUrl?: string;
 }
 
 const CATEGORIES = [
@@ -75,7 +93,7 @@ const CATEGORIES = [
 export default function ProductScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { barcode, name, brand, imageUrl, category } = useLocalSearchParams();
+  const { barcode, name, brand, imageUrl, category, nutritionInfo, ingredients } = useLocalSearchParams();
   const [productData, setProductData] = useState<ProductData | null>(null);
   const [productName, setProductName] = useState((name as string) || "");
   const [expiryDate, setExpiryDate] = useState(new Date());
@@ -93,6 +111,12 @@ export default function ProductScreen() {
   const [notes, setNotes] = useState("");
   const [existingProduct, setExistingProduct] = useState<any>(null);
   const [isOffline, setIsOffline] = useState(false);
+  const [nutritionData, setNutritionData] = useState<ProductData["nutritionInfo"]>(
+    nutritionInfo ? JSON.parse(nutritionInfo as string) : undefined
+  );
+  const [ingredientsList, setIngredientsList] = useState<string[]>(
+    ingredients ? JSON.parse(ingredients as string) : undefined
+  );
   const MAX_RETRIES = 3;
 
   // Suggested expiry categories
@@ -156,6 +180,8 @@ export default function ProductScreen() {
         if (data.imageUrl) setImage(data.imageUrl);
         if (data.notes) setNotes(data.notes);
         setExistingProduct(data);
+        if (data.nutritionInfo) setNutritionData(data.nutritionInfo);
+        if (data.ingredients) setIngredientsList(data.ingredients);
       } else {
         // Set default expiry date to 7 days from now for new products
         const defaultExpiryDate = new Date();
@@ -196,6 +222,8 @@ export default function ProductScreen() {
       quantity: parseInt(quantity) || 1,
       imageUrl: image,
       brand: brand,
+      nutritionInfo: nutritionData,
+      ingredients: ingredientsList,
     });
   };
 
@@ -261,6 +289,8 @@ export default function ProductScreen() {
         expiryDate: expiryDate.toISOString().split("T")[0],
         category: selectedCategory,
         quantity: parseInt(quantity) || 1,
+        nutritionInfo: nutritionData,
+        ingredients: ingredientsList,
       };
 
       if (typeof imageUrl === "string") {
