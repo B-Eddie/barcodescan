@@ -22,7 +22,7 @@ const firebaseConfig = {
   measurementId: "G-5RRRPZFMY8"
 };
 
-// Initialize Firebase
+// Initialize Firebas
 let app;
 try {
   if (getApps().length === 0) {
