@@ -2,6 +2,7 @@
   "expo": {
     "name": "Food Expiry Tracker",
     "slug": "food-expiry-tracker",
+    "scheme": "foodexpirytracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
