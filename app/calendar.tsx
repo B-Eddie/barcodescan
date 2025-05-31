@@ -215,21 +215,31 @@ export default function CalendarScreen() {
               markingType="dot"
               onDayPress={(day) => setSelectedDate(day.dateString)}
               theme={{
+                backgroundColor: '#ffffff',
+                calendarBackground: '#ffffff',
                 selectedDayBackgroundColor: theme.colors.primary,
+                selectedDayTextColor: '#ffffff',
                 todayTextColor: theme.colors.primary,
+                dayTextColor: '#2d4150',
+                textDisabledColor: '#d9e1e8',
                 dotColor: theme.colors.primary,
+                selectedDotColor: '#ffffff',
                 arrowColor: theme.colors.primary,
                 monthTextColor: theme.colors.primary,
-                textMonthFontWeight: "bold",
-                textDayHeaderFontWeight: "500",
-                "stylesheet.calendar.header": {
-                  dayTextAtIndex0: {
-                    color: theme.colors.error,
-                  },
-                  dayTextAtIndex6: {
-                    color: theme.colors.primary,
-                  },
-                },
+                textMonthFontSize: 20,
+                textMonthFontWeight: 'bold',
+                textDayHeaderFontSize: 14,
+                textDayHeaderFontWeight: '600',
+                textDayFontSize: 16,
+                textDayFontWeight: '500',
+              }}
+              style={{
+                borderRadius: 24,
+                elevation: 4,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
               }}
             />
           </Surface>
@@ -252,7 +262,7 @@ export default function CalendarScreen() {
                 icon="clock"
                 style={[
                   styles.legendChip,
-                  { backgroundColor: theme.colors.warning },
+                  { backgroundColor: theme.colors.errorContainer },
                 ]}
               >
                 Soon
@@ -310,7 +320,7 @@ export default function CalendarScreen() {
                             backgroundColor:
                               date.daysUntilExpiry <= 3
                                 ? theme.colors.error
-                                : theme.colors.warning,
+                                : theme.colors.errorContainer,
                           },
                         ]}
                         textStyle={{ color: "#fff" }}
@@ -384,9 +394,10 @@ export default function CalendarScreen() {
                             style={[
                               styles.expiryChip,
                               {
-                                backgroundColor: getExpiryColor(
-                                  date.daysUntilExpiry
-                                ),
+                                backgroundColor:
+                                  date.daysUntilExpiry <= 3
+                                    ? theme.colors.error
+                                    : theme.colors.errorContainer,
                               },
                             ]}
                             textStyle={{ color: "#fff" }}

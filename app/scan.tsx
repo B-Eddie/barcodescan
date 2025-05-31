@@ -10,9 +10,15 @@ import {
   Surface,
   Text,
   useTheme,
+  FAB,
 } from "react-native-paper";
-import { auth } from "../firebaseConfig";
+import { auth, database } from "../firebaseConfig";
 import { getExpiryDate } from "../utils/expiryDate";
+import { ref, set } from "firebase/database";
+import { Camera } from "react-native-vision-camera";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
+import * as Haptics from "expo-haptics";
 
 interface ProductInfo {
   product_name: string;
@@ -51,6 +57,8 @@ export default function ScanScreen() {
   const theme = useTheme();
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(true);
+  const [isRecipeMode, setIsRecipeMode] = useState(false);
+  const [isReceiptMode, setIsReceiptMode] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [scanLineAnim] = useState(new Animated.Value(0));
   const { width } = Dimensions.get("window");
@@ -175,23 +183,44 @@ export default function ScanScreen() {
         return;
       }
 
-      // Get the predicted expiry date using our layered approach
-      const predictedExpiryDate = getExpiryDate(productInfo);
-
-      // Navigate to product screen with the fetched information
-      router.push({
-        pathname: "/product",
-        params: {
-          barcode: data,
-          name: productInfo.product_name,
-          brand: productInfo.brands,
-          imageUrl: productInfo.image_url,
-          category: productInfo.categories_tags?.[0],
-          nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
-          ingredients: JSON.stringify(productInfo.ingredients),
-          expiryDate: predictedExpiryDate.toISOString(),
-        },
-      });
+      if (isRecipeMode) {
+        // Handle recipe scanning
+        const predictedExpiryDate = getExpiryDate(productInfo);
+        const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
+        
+        // Add each ingredient as a separate product
+        if (productInfo.ingredients) {
+          for (const ingredient of productInfo.ingredients) {
+            const ingredientRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${ingredient}`);
+            await set(ingredientRef, {
+              name: ingredient,
+              expiryDate: predictedExpiryDate.toISOString(),
+              category: productInfo.categories_tags?.[0] || "other",
+              quantity: 1,
+              imageUrl: productInfo.image_url,
+            });
+          }
+        }
+        
+        Alert.alert("Success", "Recipe ingredients have been added to your inventory!");
+        router.push("/");
+      } else {
+        // Regular product scanning
+        const predictedExpiryDate = getExpiryDate(productInfo);
+        router.push({
+          pathname: "/product",
+          params: {
+            barcode: data,
+            name: productInfo.product_name,
+            brand: productInfo.brands,
+            imageUrl: productInfo.image_url,
+            category: productInfo.categories_tags?.[0],
+            nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
+            ingredients: JSON.stringify(productInfo.ingredients),
+            expiryDate: predictedExpiryDate.toISOString(),
+          },
+        });
+      }
     } catch (error) {
       console.error("Error handling barcode:", error);
       Alert.alert("Error", "Failed to process barcode. Please try again.");
@@ -199,6 +228,116 @@ export default function ScanScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleReceiptScan = async () => {
+    try {
+      setLoading(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        const imageUri = result.assets[0].uri;
+        await processReceiptImage(imageUri);
+      }
+    } catch (error) {
+      console.error("Error scanning receipt:", error);
+      Alert.alert("Error", "Failed to process receipt. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processReceiptImage = async (imageUri: string) => {
+    try {
+      // Convert image to base64
+      const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Here you would typically send the image to an OCR service
+      // For now, we'll simulate OCR with a mock response
+      const mockOcrResult = {
+        text: "MILK 2% 1GAL\nBREAD WHITE LOAF\nEGGS DOZEN\nBANANAS 2LB",
+        confidence: 0.95,
+      };
+
+      // Parse the OCR result
+      const products = parseReceiptText(mockOcrResult.text);
+      
+      // Add products to database
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) {
+        Alert.alert("Error", "You must be logged in to scan receipts");
+        return;
+      }
+
+      const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
+      
+      for (const product of products) {
+        const productRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${product.name}`);
+        await set(productRef, {
+          name: product.name,
+          expiryDate: product.expiryDate.toISOString(),
+          category: product.category,
+          quantity: product.quantity,
+        });
+      }
+
+      Alert.alert("Success", "Receipt items have been added to your inventory!");
+      router.push("/");
+    } catch (error) {
+      console.error("Error processing receipt:", error);
+      Alert.alert("Error", "Failed to process receipt. Please try again.");
+    }
+  };
+
+  const parseReceiptText = (text: string) => {
+    // Split text into lines and filter out empty lines
+    const lines = text.split('\n').filter(line => line.trim());
+    
+    return lines.map(line => {
+      // Simple parsing logic - in a real app this would be more sophisticated
+      const parts = line.split(' ');
+      const quantity = parseInt(parts[0]) || 1;
+      const name = parts.slice(1).join(' ').toLowerCase();
+      
+      // Predict expiry date based on product name
+      const expiryDate = getExpiryDate({ product_name: name });
+      
+      // Determine category based on product name
+      const category = determineCategory(name);
+      
+      return {
+        name,
+        quantity,
+        expiryDate,
+        category,
+      };
+    });
+  };
+
+  const determineCategory = (name: string) => {
+    // Simple category determination - in a real app this would be more sophisticated
+    const categories = {
+      dairy: ['milk', 'cheese', 'yogurt', 'cream'],
+      bakery: ['bread', 'bun', 'roll', 'bagel'],
+      produce: ['banana', 'apple', 'orange', 'lettuce'],
+      meat: ['beef', 'chicken', 'pork', 'turkey'],
+      eggs: ['egg'],
+    };
+
+    for (const [category, keywords] of Object.entries(categories)) {
+      if (keywords.some(keyword => name.includes(keyword))) {
+        return category;
+      }
+    }
+
+    return 'other';
   };
 
   return (
@@ -244,7 +383,9 @@ export default function ScanScreen() {
                 iconColor={theme.colors.primary}
                 style={styles.instructionIcon}
               />
-              <Text style={styles.scanText}>Position barcode within frame</Text>
+              <Text style={styles.scanText}>
+                {isRecipeMode ? "Scan recipe ingredients" : "Position barcode within frame"}
+              </Text>
             </Surface>
           </LinearGradient>
         </CameraView>
@@ -284,10 +425,24 @@ export default function ScanScreen() {
             style={styles.loadingGradient}
           >
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Processing barcode...</Text>
+            <Text style={styles.loadingText}>Processing...</Text>
           </LinearGradient>
         </Surface>
       )}
+      <View style={styles.fabContainer}>
+        <FAB
+          icon={isRecipeMode ? "food" : "barcode-scan"}
+          style={[styles.fab, styles.fabLeft]}
+          onPress={() => setIsRecipeMode(!isRecipeMode)}
+          label={isRecipeMode ? "Recipe Mode" : "Product Mode"}
+        />
+        <FAB
+          icon="receipt"
+          style={[styles.fab, styles.fabRight]}
+          onPress={handleReceiptScan}
+          label="Scan Receipt"
+        />
+      </View>
     </View>
   );
 }
@@ -420,5 +575,23 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     fontWeight: "500",
+  },
+  fabContainer: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  fab: {
+    margin: 0,
+  },
+  fabLeft: {
+    marginRight: 8,
+  },
+  fabRight: {
+    marginLeft: 8,
   },
 });
