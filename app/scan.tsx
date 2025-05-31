@@ -4,14 +4,15 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Animated, Dimensions, StyleSheet, View } from "react-native";
 import {
-    ActivityIndicator,
-    Button,
-    IconButton,
-    Surface,
-    Text,
-    useTheme,
+  ActivityIndicator,
+  Button,
+  IconButton,
+  Surface,
+  Text,
+  useTheme,
 } from "react-native-paper";
 import { auth } from "../firebaseConfig";
+import { getExpiryDate } from "../utils/expiryDate";
 
 interface ProductInfo {
   product_name: string;
@@ -100,26 +101,37 @@ export default function ScanScreen() {
         });
 
         // Process nutritional information
-        const nutritionInfo = data.product.nutriments ? {
-          caloriesPerServing: data.product.nutriments.energy_100g,
-          servingSize: data.product.nutriments.serving_size || "100g",
-          carbs: {
-            amount: data.product.nutriments.carbohydrates_100g,
-            dailyValue: Math.round((data.product.nutriments.carbohydrates_100g || 0) / 275 * 100), // Based on 275g daily value
-          },
-          protein: {
-            amount: data.product.nutriments.proteins_100g,
-            dailyValue: Math.round((data.product.nutriments.proteins_100g || 0) / 50 * 100), // Based on 50g daily value
-          },
-          fat: {
-            amount: data.product.nutriments.fat_100g,
-            dailyValue: Math.round((data.product.nutriments.fat_100g || 0) / 65 * 100), // Based on 65g daily value
-          },
-        } : undefined;
+        const nutritionInfo = data.product.nutriments
+          ? {
+              caloriesPerServing: data.product.nutriments.energy_100g,
+              servingSize: data.product.nutriments.serving_size || "100g",
+              carbs: {
+                amount: data.product.nutriments.carbohydrates_100g,
+                dailyValue: Math.round(
+                  ((data.product.nutriments.carbohydrates_100g || 0) / 275) *
+                    100
+                ), // Based on 275g daily value
+              },
+              protein: {
+                amount: data.product.nutriments.proteins_100g,
+                dailyValue: Math.round(
+                  ((data.product.nutriments.proteins_100g || 0) / 50) * 100
+                ), // Based on 50g daily value
+              },
+              fat: {
+                amount: data.product.nutriments.fat_100g,
+                dailyValue: Math.round(
+                  ((data.product.nutriments.fat_100g || 0) / 65) * 100
+                ), // Based on 65g daily value
+              },
+            }
+          : undefined;
 
         // Process ingredients
         const ingredients = data.product.ingredients_text
-          ? data.product.ingredients_text.split(",").map((i: string) => i.trim())
+          ? data.product.ingredients_text
+              .split(",")
+              .map((i: string) => i.trim())
           : undefined;
 
         return {
@@ -149,23 +161,22 @@ export default function ScanScreen() {
 
       const productInfo = await fetchProductInfo(data);
       if (!productInfo) {
-        Alert.alert(
-          "Product Not Found",
-          "Would you like to add it manually?",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-              onPress: () => setScanning(true),
-            },
-            {
-              text: "Add Manually",
-              onPress: () => router.push("/manual-entry"),
-            },
-          ]
-        );
+        Alert.alert("Product Not Found", "Would you like to add it manually?", [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => setScanning(true),
+          },
+          {
+            text: "Add Manually",
+            onPress: () => router.push("/manual-entry"),
+          },
+        ]);
         return;
       }
+
+      // Get the predicted expiry date using our layered approach
+      const predictedExpiryDate = getExpiryDate(productInfo);
 
       // Navigate to product screen with the fetched information
       router.push({
@@ -178,6 +189,7 @@ export default function ScanScreen() {
           category: productInfo.categories_tags?.[0],
           nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
           ingredients: JSON.stringify(productInfo.ingredients),
+          expiryDate: predictedExpiryDate.toISOString(),
         },
       });
     } catch (error) {

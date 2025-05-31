@@ -9,22 +9,22 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { get, ref, set } from "firebase/database";
 import { useEffect, useState } from "react";
 import {
-    Alert,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import {
-    ActivityIndicator,
-    Button,
-    Card,
-    Chip,
-    Text,
-    TextInput,
-    useTheme,
+  ActivityIndicator,
+  Button,
+  Card,
+  Chip,
+  Text,
+  TextInput,
+  useTheme,
 } from "react-native-paper";
 import { auth, database } from "../firebaseConfig";
 import { updateCalendarEvent } from "../utils/calendar";
@@ -93,10 +93,21 @@ const CATEGORIES = [
 export default function ProductScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { barcode, name, brand, imageUrl, category, nutritionInfo, ingredients } = useLocalSearchParams();
+  const {
+    barcode,
+    name,
+    brand,
+    imageUrl,
+    category,
+    nutritionInfo,
+    ingredients,
+    expiryDate,
+  } = useLocalSearchParams();
   const [productData, setProductData] = useState<ProductData | null>(null);
   const [productName, setProductName] = useState((name as string) || "");
-  const [expiryDate, setExpiryDate] = useState(new Date());
+  const [expiryDateState, setExpiryDateState] = useState(
+    expiryDate ? new Date(expiryDate as string) : new Date()
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(
     (category as string) || "other"
@@ -111,11 +122,11 @@ export default function ProductScreen() {
   const [notes, setNotes] = useState("");
   const [existingProduct, setExistingProduct] = useState<any>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const [nutritionData, setNutritionData] = useState<ProductData["nutritionInfo"]>(
-    nutritionInfo ? JSON.parse(nutritionInfo as string) : undefined
-  );
+  const [nutritionData, setNutritionData] = useState<
+    ProductData["nutritionInfo"]
+  >(nutritionInfo ? JSON.parse(nutritionInfo as string) : undefined);
   const [ingredientsList, setIngredientsList] = useState<string[]>(
-    ingredients ? JSON.parse(ingredients as string) : undefined
+    ingredients ? JSON.parse(ingredients as string) : []
   );
   const MAX_RETRIES = 3;
 
@@ -174,7 +185,7 @@ export default function ProductScreen() {
         const data = snapshot.val();
         setProductData(data);
         setProductName(data.name);
-        setExpiryDate(new Date(data.expiryDate));
+        setExpiryDateState(new Date(data.expiryDate));
         setSelectedCategory(data.category);
         setQuantity(data.quantity.toString());
         if (data.imageUrl) setImage(data.imageUrl);
@@ -183,10 +194,15 @@ export default function ProductScreen() {
         if (data.nutritionInfo) setNutritionData(data.nutritionInfo);
         if (data.ingredients) setIngredientsList(data.ingredients);
       } else {
-        // Set default expiry date to 7 days from now for new products
-        const defaultExpiryDate = new Date();
-        defaultExpiryDate.setDate(defaultExpiryDate.getDate() + 7);
-        setExpiryDate(defaultExpiryDate);
+        // Use the predicted expiry date from scan if available
+        if (expiryDate) {
+          setExpiryDateState(new Date(expiryDate as string));
+        } else {
+          // Set default expiry date to 7 days from now for new products
+          const defaultExpiryDate = new Date();
+          defaultExpiryDate.setDate(defaultExpiryDate.getDate() + 7);
+          setExpiryDateState(defaultExpiryDate);
+        }
       }
     } catch (error) {
       console.error("Error fetching product:", error);
@@ -212,7 +228,7 @@ export default function ProductScreen() {
     const predictedDays = FOOD_EXPIRY_ESTIMATES[matchedCategory];
     const newDate = new Date();
     newDate.setDate(newDate.getDate() + predictedDays);
-    setExpiryDate(newDate);
+    setExpiryDateState(newDate);
 
     // Set productData for new product
     setProductData({
@@ -249,7 +265,7 @@ export default function ProductScreen() {
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(false);
     if (selectedDate) {
-      setExpiryDate(selectedDate);
+      setExpiryDateState(selectedDate);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
@@ -262,7 +278,7 @@ export default function ProductScreen() {
       FOOD_EXPIRY_ESTIMATES[cat] || FOOD_EXPIRY_ESTIMATES.default;
     const newDate = new Date();
     newDate.setDate(newDate.getDate() + predictedDays);
-    setExpiryDate(newDate);
+    setExpiryDateState(newDate);
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -286,7 +302,7 @@ export default function ProductScreen() {
 
       const productData: ProductData = {
         name: productName.trim(),
-        expiryDate: expiryDate.toISOString().split("T")[0],
+        expiryDate: expiryDateState.toISOString().split("T")[0],
         category: selectedCategory,
         quantity: parseInt(quantity) || 1,
         nutritionInfo: nutritionData,
@@ -309,8 +325,8 @@ export default function ProductScreen() {
         // Update existing calendar event
         await updateCalendarEvent(existingProduct.calendarEventId, {
           title: `${productName.trim()} Expires`,
-          startDate: new Date(expiryDate),
-          endDate: new Date(expiryDate),
+          startDate: new Date(expiryDateState),
+          endDate: new Date(expiryDateState),
           notes: `Product: ${productName.trim()}\nCategory: ${selectedCategory}\nQuantity: ${
             parseInt(quantity) || 1
           }`,
@@ -454,12 +470,12 @@ export default function ProductScreen() {
               color={theme.colors.primary}
             />
             <Text variant="bodyLarge" style={styles.dateText}>
-              {formatDate(expiryDate)}
+              {formatDate(expiryDateState)}
             </Text>
             <Text variant="bodyMedium" style={styles.daysUntil}>
               (
               {Math.ceil(
-                (expiryDate.getTime() - new Date().getTime()) /
+                (expiryDateState.getTime() - new Date().getTime()) /
                   (1000 * 60 * 60 * 24)
               )}{" "}
               days)
@@ -468,7 +484,7 @@ export default function ProductScreen() {
 
           {showDatePicker && (
             <DateTimePicker
-              value={expiryDate}
+              value={expiryDateState}
               mode="date"
               display="default"
               onChange={handleDateChange}
