@@ -45,6 +45,21 @@ export default function HomeScreen() {
   const [fadeAnim] = useState(new Animated.Value(0));
   const { width } = Dimensions.get("window");
   const [addingToCalendar, setAddingToCalendar] = useState(false);
+  const [sortBy, setSortBy] = useState<'expiry' | 'category'>('expiry');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Category colors
+  const categoryColors = {
+    dairy: '#E3F2FD',
+    meat: '#FFEBEE',
+    fruits: '#E8F5E9',
+    vegetables: '#E8F5E9',
+    bakery: '#FFF3E0',
+    canned: '#F3E5F5',
+    frozen: '#E0F7FA',
+    snacks: '#FFF8E1',
+    other: '#F5F5F5'
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -276,6 +291,149 @@ export default function HomeScreen() {
     }
   };
 
+  const getCategoryColor = (category?: string) => {
+    return categoryColors[category?.toLowerCase() as keyof typeof categoryColors] || categoryColors.other;
+  };
+
+  const getSortedProducts = () => {
+    let sortedProducts = [...products];
+    
+    if (selectedCategory) {
+      sortedProducts = sortedProducts.filter(p => p.category.toLowerCase() === selectedCategory.toLowerCase());
+    }
+
+    if (sortBy === 'expiry') {
+      sortedProducts.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+    } else {
+      sortedProducts.sort((a, b) => a.category.localeCompare(b.category));
+    }
+
+    return sortedProducts;
+  };
+
+  const renderCategorySection = (category: string, products: Product[]) => {
+    if (products.length === 0) return null;
+
+    return (
+      <View key={category} style={styles.categorySection}>
+        <Surface style={[styles.categoryHeader, { backgroundColor: getCategoryColor(category) }]} elevation={2}>
+          <Text variant="titleMedium" style={styles.categoryTitle}>
+            {category.charAt(0).toUpperCase() + category.slice(1)}
+          </Text>
+          <Text variant="bodySmall" style={styles.categoryCount}>
+            {products.length} items
+          </Text>
+        </Surface>
+        {products.map((product) => {
+          const daysUntilExpiry = Math.ceil(
+            (new Date(product.expiryDate).getTime() - new Date().getTime()) /
+              (1000 * 60 * 60 * 24)
+          );
+
+          return (
+            <Animated.View
+              key={product.id}
+              style={[
+                styles.cardContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    {
+                      translateY: fadeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [50, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Swipeable renderRightActions={() => renderRightActions(product.id)}>
+                <Pressable onPress={() => router.push(`/product?barcode=${product.id}`)}>
+                  <Surface style={styles.card} elevation={2}>
+                    <LinearGradient
+                      colors={["#ffffff", getCategoryColor(product.category)]}
+                      style={styles.cardContent}
+                    >
+                      {product.imageUrl ? (
+                        <Image
+                          source={{ uri: product.imageUrl }}
+                          style={styles.image}
+                          contentFit="cover"
+                          transition={200}
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={[
+                            theme.colors.primaryContainer,
+                            theme.colors.primaryContainer + "80",
+                          ]}
+                          style={[styles.image, styles.placeholderImage]}
+                        >
+                          <IconButton
+                            icon={getCategoryIcon(product.category)}
+                            size={32}
+                            iconColor={theme.colors.primary}
+                          />
+                        </LinearGradient>
+                      )}
+                      <View style={styles.textContainer}>
+                        <Text
+                          variant="titleMedium"
+                          style={styles.productName}
+                        >
+                          {product.name}
+                        </Text>
+                        <View style={styles.detailsContainer}>
+                          <Chip
+                            icon={getCategoryIcon(product.category)}
+                            style={[
+                              styles.categoryChip,
+                              {
+                                backgroundColor:
+                                  theme.colors.primaryContainer,
+                              },
+                            ]}
+                            textStyle={{ color: theme.colors.primary }}
+                          >
+                            {product.category}
+                          </Chip>
+                          <Chip
+                            icon="clock"
+                            style={[
+                              styles.expiryChip,
+                              {
+                                backgroundColor:
+                                  getExpiryColor(daysUntilExpiry),
+                              },
+                            ]}
+                            textStyle={{ color: "#fff" }}
+                          >
+                            {getExpiryStatus(daysUntilExpiry)}
+                          </Chip>
+                        </View>
+                        <Text variant="bodySmall" style={styles.dateText}>
+                          {new Date(product.expiryDate).toLocaleDateString(
+                            undefined,
+                            {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                            }
+                          )}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  </Surface>
+                </Pressable>
+              </Swipeable>
+            </Animated.View>
+          );
+        })}
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -303,6 +461,45 @@ export default function HomeScreen() {
             <Text variant="headlineSmall" style={styles.headerTitle}>
               Your Pantry
             </Text>
+            <View style={styles.sortContainer}>
+              <Button
+                mode={sortBy === 'expiry' ? 'contained' : 'outlined'}
+                onPress={() => setSortBy('expiry')}
+                style={styles.sortButton}
+              >
+                Sort by Expiry
+              </Button>
+              <Button
+                mode={sortBy === 'category' ? 'contained' : 'outlined'}
+                onPress={() => setSortBy('category')}
+                style={styles.sortButton}
+              >
+                Sort by Category
+              </Button>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoryFilter}
+            >
+              <Chip
+                selected={selectedCategory === null}
+                onPress={() => setSelectedCategory(null)}
+                style={styles.filterChip}
+              >
+                All
+              </Chip>
+              {Object.keys(categoryColors).map((category) => (
+                <Chip
+                  key={category}
+                  selected={selectedCategory === category}
+                  onPress={() => setSelectedCategory(category)}
+                  style={[styles.filterChip, { backgroundColor: getCategoryColor(category) }]}
+                >
+                  {category.charAt(0).toUpperCase() + category.slice(1)}
+                </Chip>
+              ))}
+            </ScrollView>
             <Button
               mode="contained"
               onPress={handleAddAllToCalendar}
@@ -336,119 +533,121 @@ export default function HomeScreen() {
               </LinearGradient>
             </Surface>
           ) : (
-            products.map((product, index) => {
-              const daysUntilExpiry = Math.ceil(
-                (new Date(product.expiryDate).getTime() -
-                  new Date().getTime()) /
-                  (1000 * 60 * 60 * 24)
-              );
+            sortBy === 'category' ? (
+              Object.keys(categoryColors).map(category => {
+                const categoryProducts = getSortedProducts().filter(
+                  p => p.category.toLowerCase() === category.toLowerCase()
+                );
+                return renderCategorySection(category, categoryProducts);
+              })
+            ) : (
+              getSortedProducts().map(product => {
+                const daysUntilExpiry = Math.ceil(
+                  (new Date(product.expiryDate).getTime() - new Date().getTime()) /
+                    (1000 * 60 * 60 * 24)
+                );
 
-              return (
-                <Animated.View
-                  key={product.id}
-                  style={[
-                    styles.cardContainer,
-                    {
-                      opacity: fadeAnim,
-                      transform: [
-                        {
-                          translateY: fadeAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [50, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <Swipeable
-                    renderRightActions={() => renderRightActions(product.id)}
+                return (
+                  <Animated.View
+                    key={product.id}
+                    style={[
+                      styles.cardContainer,
+                      {
+                        opacity: fadeAnim,
+                        transform: [
+                          {
+                            translateY: fadeAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [50, 0],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
                   >
-                    <Pressable
-                      onPress={() =>
-                        router.push(`/product?barcode=${product.id}`)
-                      }
-                    >
-                      <Surface style={styles.card} elevation={2}>
-                        <LinearGradient
-                          colors={["#ffffff", "#f8f9fa"]}
-                          style={styles.cardContent}
-                        >
-                          {product.imageUrl ? (
-                            <Image
-                              source={{ uri: product.imageUrl }}
-                              style={styles.image}
-                              contentFit="cover"
-                              transition={200}
-                            />
-                          ) : (
-                            <LinearGradient
-                              colors={[
-                                theme.colors.primaryContainer,
-                                theme.colors.primaryContainer + "80",
-                              ]}
-                              style={[styles.image, styles.placeholderImage]}
-                            >
-                              <IconButton
-                                icon={getCategoryIcon(product.category)}
-                                size={32}
-                                iconColor={theme.colors.primary}
+                    <Swipeable renderRightActions={() => renderRightActions(product.id)}>
+                      <Pressable onPress={() => router.push(`/product?barcode=${product.id}`)}>
+                        <Surface style={styles.card} elevation={2}>
+                          <LinearGradient
+                            colors={["#ffffff", getCategoryColor(product.category)]}
+                            style={styles.cardContent}
+                          >
+                            {product.imageUrl ? (
+                              <Image
+                                source={{ uri: product.imageUrl }}
+                                style={styles.image}
+                                contentFit="cover"
+                                transition={200}
                               />
-                            </LinearGradient>
-                          )}
-                          <View style={styles.textContainer}>
-                            <Text
-                              variant="titleMedium"
-                              style={styles.productName}
-                            >
-                              {product.name}
-                            </Text>
-                            <View style={styles.detailsContainer}>
-                              <Chip
-                                icon={getCategoryIcon(product.category)}
-                                style={[
-                                  styles.categoryChip,
-                                  {
-                                    backgroundColor:
-                                      theme.colors.primaryContainer,
-                                  },
+                            ) : (
+                              <LinearGradient
+                                colors={[
+                                  theme.colors.primaryContainer,
+                                  theme.colors.primaryContainer + "80",
                                 ]}
-                                textStyle={{ color: theme.colors.primary }}
+                                style={[styles.image, styles.placeholderImage]}
                               >
-                                {product.category}
-                              </Chip>
-                              <Chip
-                                icon="clock"
-                                style={[
-                                  styles.expiryChip,
+                                <IconButton
+                                  icon={getCategoryIcon(product.category)}
+                                  size={32}
+                                  iconColor={theme.colors.primary}
+                                />
+                              </LinearGradient>
+                            )}
+                            <View style={styles.textContainer}>
+                              <Text
+                                variant="titleMedium"
+                                style={styles.productName}
+                              >
+                                {product.name}
+                              </Text>
+                              <View style={styles.detailsContainer}>
+                                <Chip
+                                  icon={getCategoryIcon(product.category)}
+                                  style={[
+                                    styles.categoryChip,
+                                    {
+                                      backgroundColor:
+                                        theme.colors.primaryContainer,
+                                    },
+                                  ]}
+                                  textStyle={{ color: theme.colors.primary }}
+                                >
+                                  {product.category}
+                                </Chip>
+                                <Chip
+                                  icon="clock"
+                                  style={[
+                                    styles.expiryChip,
+                                    {
+                                      backgroundColor:
+                                        getExpiryColor(daysUntilExpiry),
+                                    },
+                                  ]}
+                                  textStyle={{ color: "#fff" }}
+                                >
+                                  {getExpiryStatus(daysUntilExpiry)}
+                                </Chip>
+                              </View>
+                              <Text variant="bodySmall" style={styles.dateText}>
+                                {new Date(product.expiryDate).toLocaleDateString(
+                                  undefined,
                                   {
-                                    backgroundColor:
-                                      getExpiryColor(daysUntilExpiry),
-                                  },
-                                ]}
-                                textStyle={{ color: "#fff" }}
-                              >
-                                {getExpiryStatus(daysUntilExpiry)}
-                              </Chip>
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                  }
+                                )}
+                              </Text>
                             </View>
-                            <Text variant="bodySmall" style={styles.dateText}>
-                              {new Date(product.expiryDate).toLocaleDateString(
-                                undefined,
-                                {
-                                  weekday: "short",
-                                  month: "short",
-                                  day: "numeric",
-                                }
-                              )}
-                            </Text>
-                          </View>
-                        </LinearGradient>
-                      </Surface>
-                    </Pressable>
-                  </Swipeable>
-                </Animated.View>
-              );
-            })
+                          </LinearGradient>
+                        </Surface>
+                      </Pressable>
+                    </Swipeable>
+                  </Animated.View>
+                );
+              })
+            )
           )}
         </Animated.View>
       </ScrollView>
@@ -575,5 +774,37 @@ const styles = StyleSheet.create({
   calendarButton: {
     borderRadius: 16,
     backgroundColor: "#4CAF50",
+  },
+  sortContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 8,
+  },
+  sortButton: {
+    flex: 1,
+  },
+  categoryFilter: {
+    marginBottom: 16,
+  },
+  filterChip: {
+    marginRight: 8,
+  },
+  categorySection: {
+    marginBottom: 16,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  categoryTitle: {
+    fontWeight: '600',
+  },
+  categoryCount: {
+    color: '#666',
   },
 });
