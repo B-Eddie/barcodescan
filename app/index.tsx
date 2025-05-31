@@ -45,20 +45,20 @@ export default function HomeScreen() {
   const [fadeAnim] = useState(new Animated.Value(0));
   const { width } = Dimensions.get("window");
   const [addingToCalendar, setAddingToCalendar] = useState(false);
-  const [sortBy, setSortBy] = useState<'expiry' | 'category'>('expiry');
+  const [sortBy, setSortBy] = useState<"expiry" | "category">("expiry");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Category colors
   const categoryColors = {
-    dairy: '#E3F2FD',
-    meat: '#FFEBEE',
-    fruits: '#E8F5E9',
-    vegetables: '#E8F5E9',
-    bakery: '#FFF3E0',
-    canned: '#F3E5F5',
-    frozen: '#E0F7FA',
-    snacks: '#FFF8E1',
-    other: '#F5F5F5'
+    dairy: "#E3F2FD",
+    meat: "#FFEBEE",
+    fruits: "#E8F5E9",
+    vegetables: "#E8F5E9",
+    bakery: "#FFF3E0",
+    canned: "#F3E5F5",
+    frozen: "#E0F7FA",
+    snacks: "#FFF8E1",
+    other: "#F5F5F5",
   };
 
   useEffect(() => {
@@ -292,18 +292,26 @@ export default function HomeScreen() {
   };
 
   const getCategoryColor = (category?: string) => {
-    return categoryColors[category?.toLowerCase() as keyof typeof categoryColors] || categoryColors.other;
+    return (
+      categoryColors[category?.toLowerCase() as keyof typeof categoryColors] ||
+      categoryColors.other
+    );
   };
 
   const getSortedProducts = () => {
     let sortedProducts = [...products];
-    
+
     if (selectedCategory) {
-      sortedProducts = sortedProducts.filter(p => p.category.toLowerCase() === selectedCategory.toLowerCase());
+      sortedProducts = sortedProducts.filter(
+        (p) => p.category.toLowerCase() === selectedCategory.toLowerCase()
+      );
     }
 
-    if (sortBy === 'expiry') {
-      sortedProducts.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+    if (sortBy === "expiry") {
+      sortedProducts.sort(
+        (a, b) =>
+          new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
+      );
     } else {
       sortedProducts.sort((a, b) => a.category.localeCompare(b.category));
     }
@@ -316,7 +324,13 @@ export default function HomeScreen() {
 
     return (
       <View key={category} style={styles.categorySection}>
-        <Surface style={[styles.categoryHeader, { backgroundColor: getCategoryColor(category) }]} elevation={2}>
+        <Surface
+          style={[
+            styles.categoryHeader,
+            { backgroundColor: getCategoryColor(category) },
+          ]}
+          elevation={2}
+        >
           <Text variant="titleMedium" style={styles.categoryTitle}>
             {category.charAt(0).toUpperCase() + category.slice(1)}
           </Text>
@@ -348,8 +362,12 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              <Swipeable renderRightActions={() => renderRightActions(product.id)}>
-                <Pressable onPress={() => router.push(`/product?barcode=${product.id}`)}>
+              <Swipeable
+                renderRightActions={() => renderRightActions(product.id)}
+              >
+                <Pressable
+                  onPress={() => router.push(`/product?barcode=${product.id}`)}
+                >
                   <Surface style={styles.card} elevation={2}>
                     <LinearGradient
                       colors={["#ffffff", getCategoryColor(product.category)]}
@@ -378,10 +396,7 @@ export default function HomeScreen() {
                         </LinearGradient>
                       )}
                       <View style={styles.textContainer}>
-                        <Text
-                          variant="titleMedium"
-                          style={styles.productName}
-                        >
+                        <Text variant="titleMedium" style={styles.productName}>
                           {product.name}
                         </Text>
                         <View style={styles.detailsContainer}>
@@ -390,8 +405,7 @@ export default function HomeScreen() {
                             style={[
                               styles.categoryChip,
                               {
-                                backgroundColor:
-                                  theme.colors.primaryContainer,
+                                backgroundColor: theme.colors.primaryContainer,
                               },
                             ]}
                             textStyle={{ color: theme.colors.primary }}
@@ -463,15 +477,15 @@ export default function HomeScreen() {
             </Text>
             <View style={styles.sortContainer}>
               <Button
-                mode={sortBy === 'expiry' ? 'contained' : 'outlined'}
-                onPress={() => setSortBy('expiry')}
+                mode={sortBy === "expiry" ? "contained" : "outlined"}
+                onPress={() => setSortBy("expiry")}
                 style={styles.sortButton}
               >
                 Sort by Expiry
               </Button>
               <Button
-                mode={sortBy === 'category' ? 'contained' : 'outlined'}
-                onPress={() => setSortBy('category')}
+                mode={sortBy === "category" ? "contained" : "outlined"}
+                onPress={() => setSortBy("category")}
                 style={styles.sortButton}
               >
                 Sort by Category
@@ -494,7 +508,10 @@ export default function HomeScreen() {
                   key={category}
                   selected={selectedCategory === category}
                   onPress={() => setSelectedCategory(category)}
-                  style={[styles.filterChip, { backgroundColor: getCategoryColor(category) }]}
+                  style={[
+                    styles.filterChip,
+                    { backgroundColor: getCategoryColor(category) },
+                  ]}
                 >
                   {category.charAt(0).toUpperCase() + category.slice(1)}
                 </Chip>
@@ -532,122 +549,130 @@ export default function HomeScreen() {
                 </Text>
               </LinearGradient>
             </Surface>
+          ) : sortBy === "category" ? (
+            Object.keys(categoryColors).map((category) => {
+              const categoryProducts = getSortedProducts().filter(
+                (p) => p.category.toLowerCase() === category.toLowerCase()
+              );
+              return renderCategorySection(category, categoryProducts);
+            })
           ) : (
-            sortBy === 'category' ? (
-              Object.keys(categoryColors).map(category => {
-                const categoryProducts = getSortedProducts().filter(
-                  p => p.category.toLowerCase() === category.toLowerCase()
-                );
-                return renderCategorySection(category, categoryProducts);
-              })
-            ) : (
-              getSortedProducts().map(product => {
-                const daysUntilExpiry = Math.ceil(
-                  (new Date(product.expiryDate).getTime() - new Date().getTime()) /
-                    (1000 * 60 * 60 * 24)
-                );
+            getSortedProducts().map((product) => {
+              const daysUntilExpiry = Math.ceil(
+                (new Date(product.expiryDate).getTime() -
+                  new Date().getTime()) /
+                  (1000 * 60 * 60 * 24)
+              );
 
-                return (
-                  <Animated.View
-                    key={product.id}
-                    style={[
-                      styles.cardContainer,
-                      {
-                        opacity: fadeAnim,
-                        transform: [
-                          {
-                            translateY: fadeAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [50, 0],
-                            }),
-                          },
-                        ],
-                      },
-                    ]}
+              return (
+                <Animated.View
+                  key={product.id}
+                  style={[
+                    styles.cardContainer,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        {
+                          translateY: fadeAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [50, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <Swipeable
+                    renderRightActions={() => renderRightActions(product.id)}
                   >
-                    <Swipeable renderRightActions={() => renderRightActions(product.id)}>
-                      <Pressable onPress={() => router.push(`/product?barcode=${product.id}`)}>
-                        <Surface style={styles.card} elevation={2}>
-                          <LinearGradient
-                            colors={["#ffffff", getCategoryColor(product.category)]}
-                            style={styles.cardContent}
-                          >
-                            {product.imageUrl ? (
-                              <Image
-                                source={{ uri: product.imageUrl }}
-                                style={styles.image}
-                                contentFit="cover"
-                                transition={200}
+                    <Pressable
+                      onPress={() =>
+                        router.push(`/product?barcode=${product.id}`)
+                      }
+                    >
+                      <Surface style={styles.card} elevation={2}>
+                        <LinearGradient
+                          colors={[
+                            "#ffffff",
+                            getCategoryColor(product.category),
+                          ]}
+                          style={styles.cardContent}
+                        >
+                          {product.imageUrl ? (
+                            <Image
+                              source={{ uri: product.imageUrl }}
+                              style={styles.image}
+                              contentFit="cover"
+                              transition={200}
+                            />
+                          ) : (
+                            <LinearGradient
+                              colors={[
+                                theme.colors.primaryContainer,
+                                theme.colors.primaryContainer + "80",
+                              ]}
+                              style={[styles.image, styles.placeholderImage]}
+                            >
+                              <IconButton
+                                icon={getCategoryIcon(product.category)}
+                                size={32}
+                                iconColor={theme.colors.primary}
                               />
-                            ) : (
-                              <LinearGradient
-                                colors={[
-                                  theme.colors.primaryContainer,
-                                  theme.colors.primaryContainer + "80",
-                                ]}
-                                style={[styles.image, styles.placeholderImage]}
-                              >
-                                <IconButton
-                                  icon={getCategoryIcon(product.category)}
-                                  size={32}
-                                  iconColor={theme.colors.primary}
-                                />
-                              </LinearGradient>
-                            )}
-                            <View style={styles.textContainer}>
-                              <Text
-                                variant="titleMedium"
-                                style={styles.productName}
-                              >
-                                {product.name}
-                              </Text>
-                              <View style={styles.detailsContainer}>
-                                <Chip
-                                  icon={getCategoryIcon(product.category)}
-                                  style={[
-                                    styles.categoryChip,
-                                    {
-                                      backgroundColor:
-                                        theme.colors.primaryContainer,
-                                    },
-                                  ]}
-                                  textStyle={{ color: theme.colors.primary }}
-                                >
-                                  {product.category}
-                                </Chip>
-                                <Chip
-                                  icon="clock"
-                                  style={[
-                                    styles.expiryChip,
-                                    {
-                                      backgroundColor:
-                                        getExpiryColor(daysUntilExpiry),
-                                    },
-                                  ]}
-                                  textStyle={{ color: "#fff" }}
-                                >
-                                  {getExpiryStatus(daysUntilExpiry)}
-                                </Chip>
-                              </View>
-                              <Text variant="bodySmall" style={styles.dateText}>
-                                {new Date(product.expiryDate).toLocaleDateString(
-                                  undefined,
+                            </LinearGradient>
+                          )}
+                          <View style={styles.textContainer}>
+                            <Text
+                              variant="titleMedium"
+                              style={styles.productName}
+                            >
+                              {product.name}
+                            </Text>
+                            <View style={styles.detailsContainer}>
+                              <Chip
+                                icon={getCategoryIcon(product.category)}
+                                style={[
+                                  styles.categoryChip,
                                   {
-                                    weekday: "short",
-                                    month: "short",
-                                    day: "numeric",
-                                  }
-                                )}
-                              </Text>
+                                    backgroundColor:
+                                      theme.colors.primaryContainer,
+                                  },
+                                ]}
+                                textStyle={{ color: theme.colors.primary }}
+                              >
+                                {product.category}
+                              </Chip>
+                              <Chip
+                                icon="clock"
+                                style={[
+                                  styles.expiryChip,
+                                  {
+                                    backgroundColor:
+                                      getExpiryColor(daysUntilExpiry),
+                                  },
+                                ]}
+                                textStyle={{ color: "#fff" }}
+                              >
+                                {getExpiryStatus(daysUntilExpiry)}
+                              </Chip>
                             </View>
-                          </LinearGradient>
-                        </Surface>
-                      </Pressable>
-                    </Swipeable>
-                  </Animated.View>
-                );
-              })
-            )
+                            <Text variant="bodySmall" style={styles.dateText}>
+                              {new Date(product.expiryDate).toLocaleDateString(
+                                undefined,
+                                {
+                                  weekday: "short",
+                                  month: "short",
+                                  day: "numeric",
+                                }
+                              )}
+                            </Text>
+                          </View>
+                        </LinearGradient>
+                      </Surface>
+                    </Pressable>
+                  </Swipeable>
+                </Animated.View>
+              );
+            })
           )}
         </Animated.View>
       </ScrollView>
@@ -776,7 +801,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#4CAF50",
   },
   sortContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginBottom: 16,
     gap: 8,
   },
@@ -793,18 +818,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 12,
     marginHorizontal: 16,
     marginBottom: 8,
     borderRadius: 12,
   },
   categoryTitle: {
-    fontWeight: '600',
+    fontWeight: "600",
   },
   categoryCount: {
-    color: '#666',
+    color: "#666",
   },
 });

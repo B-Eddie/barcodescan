@@ -1,24 +1,22 @@
 import { CameraView } from "expo-camera";
+import * as FileSystem from "expo-file-system";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { ref, set } from "firebase/database";
 import { useEffect, useState } from "react";
 import { Alert, Animated, Dimensions, StyleSheet, View } from "react-native";
 import {
   ActivityIndicator,
   Button,
+  FAB,
   IconButton,
   Surface,
   Text,
   useTheme,
-  FAB,
 } from "react-native-paper";
 import { auth, database } from "../firebaseConfig";
 import { getExpiryDate } from "../utils/expiryDate";
-import { ref, set } from "firebase/database";
-import { Camera } from "react-native-vision-camera";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
-import * as Haptics from "expo-haptics";
 
 interface ProductInfo {
   product_name: string;
@@ -186,12 +184,17 @@ export default function ScanScreen() {
       if (isRecipeMode) {
         // Handle recipe scanning
         const predictedExpiryDate = getExpiryDate(productInfo);
-        const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
-        
+        const encodedEmail = encodeURIComponent(
+          currentUser.email.replace(/\./g, ",")
+        );
+
         // Add each ingredient as a separate product
         if (productInfo.ingredients) {
           for (const ingredient of productInfo.ingredients) {
-            const ingredientRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${ingredient}`);
+            const ingredientRef = ref(
+              database,
+              `users/${encodedEmail}/products/${Date.now()}-${ingredient}`
+            );
             await set(ingredientRef, {
               name: ingredient,
               expiryDate: predictedExpiryDate.toISOString(),
@@ -201,8 +204,11 @@ export default function ScanScreen() {
             });
           }
         }
-        
-        Alert.alert("Success", "Recipe ingredients have been added to your inventory!");
+
+        Alert.alert(
+          "Success",
+          "Recipe ingredients have been added to your inventory!"
+        );
         router.push("/");
       } else {
         // Regular product scanning
@@ -268,7 +274,7 @@ export default function ScanScreen() {
 
       // Parse the OCR result
       const products = parseReceiptText(mockOcrResult.text);
-      
+
       // Add products to database
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
@@ -276,10 +282,15 @@ export default function ScanScreen() {
         return;
       }
 
-      const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
-      
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
+      );
+
       for (const product of products) {
-        const productRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${product.name}`);
+        const productRef = ref(
+          database,
+          `users/${encodedEmail}/products/${Date.now()}-${product.name}`
+        );
         await set(productRef, {
           name: product.name,
           expiryDate: product.expiryDate.toISOString(),
@@ -288,7 +299,10 @@ export default function ScanScreen() {
         });
       }
 
-      Alert.alert("Success", "Receipt items have been added to your inventory!");
+      Alert.alert(
+        "Success",
+        "Receipt items have been added to your inventory!"
+      );
       router.push("/");
     } catch (error) {
       console.error("Error processing receipt:", error);
@@ -298,20 +312,20 @@ export default function ScanScreen() {
 
   const parseReceiptText = (text: string) => {
     // Split text into lines and filter out empty lines
-    const lines = text.split('\n').filter(line => line.trim());
-    
-    return lines.map(line => {
+    const lines = text.split("\n").filter((line) => line.trim());
+
+    return lines.map((line) => {
       // Simple parsing logic - in a real app this would be more sophisticated
-      const parts = line.split(' ');
+      const parts = line.split(" ");
       const quantity = parseInt(parts[0]) || 1;
-      const name = parts.slice(1).join(' ').toLowerCase();
-      
+      const name = parts.slice(1).join(" ").toLowerCase();
+
       // Predict expiry date based on product name
       const expiryDate = getExpiryDate({ product_name: name });
-      
+
       // Determine category based on product name
       const category = determineCategory(name);
-      
+
       return {
         name,
         quantity,
@@ -324,20 +338,20 @@ export default function ScanScreen() {
   const determineCategory = (name: string) => {
     // Simple category determination - in a real app this would be more sophisticated
     const categories = {
-      dairy: ['milk', 'cheese', 'yogurt', 'cream'],
-      bakery: ['bread', 'bun', 'roll', 'bagel'],
-      produce: ['banana', 'apple', 'orange', 'lettuce'],
-      meat: ['beef', 'chicken', 'pork', 'turkey'],
-      eggs: ['egg'],
+      dairy: ["milk", "cheese", "yogurt", "cream"],
+      bakery: ["bread", "bun", "roll", "bagel"],
+      produce: ["banana", "apple", "orange", "lettuce"],
+      meat: ["beef", "chicken", "pork", "turkey"],
+      eggs: ["egg"],
     };
 
     for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some(keyword => name.includes(keyword))) {
+      if (keywords.some((keyword) => name.includes(keyword))) {
         return category;
       }
     }
 
-    return 'other';
+    return "other";
   };
 
   return (
@@ -384,7 +398,9 @@ export default function ScanScreen() {
                 style={styles.instructionIcon}
               />
               <Text style={styles.scanText}>
-                {isRecipeMode ? "Scan recipe ingredients" : "Position barcode within frame"}
+                {isRecipeMode
+                  ? "Scan recipe ingredients"
+                  : "Position barcode within frame"}
               </Text>
             </Surface>
           </LinearGradient>
@@ -577,12 +593,12 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   fabContainer: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 16,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
   },
   fab: {

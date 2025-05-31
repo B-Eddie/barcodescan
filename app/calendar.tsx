@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { get, ref } from "firebase/database";
 import { useCallback, useEffect, useState } from "react";
@@ -250,24 +249,23 @@ export default function CalendarScreen() {
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={["#667eea", "#764ba2"]}
-        style={styles.loadingContainer}
+      <View
+        style={[
+          styles.loadingContainer,
+          { backgroundColor: theme.colors.primary },
+        ]}
       >
         <View style={styles.loadingContent}>
           <ActivityIndicator size="large" color="#fff" />
           <Text style={styles.loadingText}>Loading your calendar...</Text>
         </View>
-      </LinearGradient>
+      </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#667eea", "#764ba2"]}
-        style={styles.headerGradient}
-      >
+      <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
         <Surface style={styles.headerSurface} elevation={0}>
           <Text variant="headlineMedium" style={styles.headerTitle}>
             Food Calendar
@@ -276,7 +274,7 @@ export default function CalendarScreen() {
             Track your food expiration dates
           </Text>
         </Surface>
-      </LinearGradient>
+      </View>
 
       <ScrollView
         style={styles.scrollView}
@@ -406,9 +404,7 @@ export default function CalendarScreen() {
                   contentContainerStyle={styles.horizontalScroll}
                 >
                   {upcomingExpiries.map((item, index) => {
-                    const [startColor, endColor] = getGradientColors(
-                      item.daysUntilExpiry
-                    );
+                    const color = getExpiryColor(item.daysUntilExpiry);
                     return (
                       <TouchableOpacity
                         key={item.id}
@@ -423,34 +419,34 @@ export default function CalendarScreen() {
                           { marginLeft: index === 0 ? 0 : 12 },
                         ]}
                       >
-                        <LinearGradient
-                          colors={[startColor, endColor]}
-                          style={styles.upcomingGradient}
+                        <View
+                          style={[
+                            styles.upcomingContent,
+                            { backgroundColor: color },
+                          ]}
                         >
-                          <View style={styles.upcomingContent}>
-                            <IconButton
-                              icon={getCategoryIcon(item.category)}
-                              iconColor="#fff"
-                              size={32}
-                              style={styles.upcomingIcon}
-                            />
+                          <IconButton
+                            icon={getCategoryIcon(item.category)}
+                            iconColor="#fff"
+                            size={32}
+                            style={styles.upcomingIcon}
+                          />
+                          <Text
+                            variant="bodyMedium"
+                            style={styles.upcomingName}
+                            numberOfLines={2}
+                          >
+                            {item.name}
+                          </Text>
+                          <View style={styles.upcomingBadge}>
                             <Text
-                              variant="bodyMedium"
-                              style={styles.upcomingName}
-                              numberOfLines={2}
+                              variant="bodySmall"
+                              style={styles.upcomingDays}
                             >
-                              {item.name}
+                              {getExpiryStatus(item.daysUntilExpiry)}
                             </Text>
-                            <View style={styles.upcomingBadge}>
-                              <Text
-                                variant="bodySmall"
-                                style={styles.upcomingDays}
-                              >
-                                {getExpiryStatus(item.daysUntilExpiry)}
-                              </Text>
-                            </View>
                           </View>
-                        </LinearGradient>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -479,9 +475,7 @@ export default function CalendarScreen() {
                 </View>
 
                 {filteredDates.map((item) => {
-                  const [startColor, endColor] = getGradientColors(
-                    item.daysUntilExpiry
-                  );
+                  const color = getExpiryColor(item.daysUntilExpiry);
                   return (
                     <TouchableOpacity
                       key={item.id}
@@ -492,44 +486,44 @@ export default function CalendarScreen() {
                       style={styles.dateItem}
                     >
                       <Surface style={styles.dateItemSurface} elevation={2}>
-                        <LinearGradient
-                          colors={[startColor + "20", endColor + "10"]}
-                          style={styles.dateItemGradient}
+                        <View
+                          style={[
+                            styles.dateItemContent,
+                            { borderLeftColor: color, borderLeftWidth: 4 },
+                          ]}
                         >
-                          <View style={styles.dateItemContent}>
-                            <View style={styles.dateItemLeft}>
-                              <IconButton
-                                icon={getCategoryIcon(item.category)}
-                                iconColor={startColor}
-                                size={24}
-                                style={styles.dateItemIcon}
-                              />
-                              <View style={styles.dateItemInfo}>
-                                <Text
-                                  variant="bodyLarge"
-                                  style={styles.dateItemName}
-                                >
-                                  {item.name}
-                                </Text>
-                                <Text
-                                  variant="bodySmall"
-                                  style={styles.dateItemCategory}
-                                >
-                                  {item.category} • Qty: {item.quantity}
-                                </Text>
-                              </View>
+                          <View style={styles.dateItemLeft}>
+                            <IconButton
+                              icon={getCategoryIcon(item.category)}
+                              iconColor={color}
+                              size={24}
+                              style={styles.dateItemIcon}
+                            />
+                            <View style={styles.dateItemInfo}>
+                              <Text
+                                variant="bodyLarge"
+                                style={styles.dateItemName}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text
+                                variant="bodySmall"
+                                style={styles.dateItemCategory}
+                              >
+                                {item.category} • Qty: {item.quantity}
+                              </Text>
                             </View>
-                            <Chip
-                              style={[
-                                styles.dateItemChip,
-                                { backgroundColor: startColor },
-                              ]}
-                              textStyle={styles.dateItemChipText}
-                            >
-                              {getExpiryStatus(item.daysUntilExpiry)}
-                            </Chip>
                           </View>
-                        </LinearGradient>
+                          <Chip
+                            style={[
+                              styles.dateItemChip,
+                              { backgroundColor: color },
+                            ]}
+                            textStyle={styles.dateItemChipText}
+                          >
+                            {getExpiryStatus(item.daysUntilExpiry)}
+                          </Chip>
+                        </View>
                       </Surface>
                     </TouchableOpacity>
                   );
@@ -581,7 +575,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
   },
-  headerGradient: {
+  header: {
     paddingTop: 60,
     paddingBottom: 20,
   },
@@ -664,9 +658,6 @@ const styles = StyleSheet.create({
   upcomingItem: {
     width: 160,
     height: 180,
-  },
-  upcomingGradient: {
-    flex: 1,
     borderRadius: 16,
     overflow: "hidden",
   },
@@ -704,9 +695,6 @@ const styles = StyleSheet.create({
   dateItemSurface: {
     borderRadius: 16,
     overflow: "hidden",
-  },
-  dateItemGradient: {
-    padding: 1,
   },
   dateItemContent: {
     flexDirection: "row",
