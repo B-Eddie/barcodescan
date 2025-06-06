@@ -1,22 +1,21 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { get, ref, remove, update } from "firebase/database";
+import { get, ref } from "firebase/database";
 import { useEffect, useState } from "react";
 import {
   Alert,
-  Animated,
-  Dimensions,
-  Pressable,
+  FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
-import { Swipeable } from "react-native-gesture-handler";
 import {
   ActivityIndicator,
   Button,
+  Card,
   Chip,
   IconButton,
   Surface,
@@ -24,60 +23,56 @@ import {
   useTheme,
 } from "react-native-paper";
 import { auth, database } from "../firebaseConfig";
-import { createCalendarEvent } from "../utils/calendar";
 
-interface Product {
+interface FoodItem {
   id: string;
   name: string;
-  expiryDate: string;
+  purchaseDate: string;
+  estimatedExpiryDate: string;
+  confidence: number;
   category: string;
   quantity: number;
-  imageUrl?: string;
+  daysUntilExpiry: number;
+  status: "fresh" | "expiring_soon" | "expired";
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const { width } = Dimensions.get("window");
-  const [addingToCalendar, setAddingToCalendar] = useState(false);
-  const [sortBy, setSortBy] = useState<"expiry" | "category">("expiry");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Category colors
-  const categoryColors = {
-    dairy: "#E3F2FD",
-    meat: "#FFEBEE",
-    fruits: "#E8F5E9",
-    vegetables: "#E8F5E9",
-    bakery: "#FFF3E0",
-    canned: "#F3E5F5",
-    frozen: "#E0F7FA",
-    snacks: "#FFF8E1",
-    other: "#F5F5F5",
-  };
+  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+
+  // Categories for filtering
+  const categories = [
+    { label: "All", value: "all" },
+    { label: "Dairy", value: "dairy" },
+    { label: "Meat", value: "meat" },
+    { label: "Produce", value: "produce" },
+    { label: "Bakery", value: "bakery" },
+    { label: "Snacks", value: "snacks" },
+    { label: "Other", value: "other" },
+  ];
+
+  // Filter options
+  const filterOptions = [
+    { label: "All Items", value: "all" },
+    { label: "Fresh", value: "fresh" },
+    { label: "Expiring Soon", value: "expiring_soon" },
+    { label: "Expired", value: "expired" },
+  ];
 
   useEffect(() => {
-    fetchProducts();
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
+    loadFoodItems();
   }, []);
 
-  const fetchProducts = async (isRefreshing = false) => {
+  const loadFoodItems = async () => {
     try {
-      if (isRefreshing) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
+      setLoading(true);
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
         setLoading(false);
@@ -91,74 +86,152 @@ export default function HomeScreen() {
       const productsRef = ref(database, `users/${encodedEmail}/products`);
       const snapshot = await get(productsRef);
 
-      const productsList: Product[] = [];
+      const foodItemsList: FoodItem[] = [];
       if (snapshot.exists()) {
         snapshot.forEach((childSnapshot) => {
           const data = childSnapshot.val();
-          productsList.push({
+          foodItemsList.push({
             id: childSnapshot.key || "",
             name: data.name,
-            expiryDate: data.expiryDate,
+            purchaseDate: data.purchaseDate,
+            estimatedExpiryDate: data.expiryDate,
+            confidence: data.confidence,
             category: data.category,
             quantity: data.quantity,
-            imageUrl: data.imageUrl,
+            daysUntilExpiry: Math.ceil(
+              (new Date(data.expiryDate).getTime() - new Date().getTime()) /
+                (1000 * 60 * 60 * 24)
+            ),
+            status: data.status,
           });
         });
       }
 
-      // Sort by expiry date
-      productsList.sort(
-        (a, b) =>
-          new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
-      );
+      // Calculate days until expiry and status for each item
+      const itemsWithStatus = foodItemsList.map((item) => {
+        let status: "fresh" | "expiring_soon" | "expired";
+        if (item.daysUntilExpiry < 0) {
+          status = "expired";
+        } else if (item.daysUntilExpiry <= 3) {
+          status = "expiring_soon";
+        } else {
+          status = "fresh";
+        }
 
-      setProducts(productsList);
+        return {
+          ...item,
+          status,
+        };
+      });
+
+      setFoodItems(itemsWithStatus);
     } catch (error) {
-      console.error("Error fetching products:", error);
-      Alert.alert("Error", "Failed to load products");
+      console.error("Error loading food items:", error);
+      Alert.alert("Error", "Failed to load food items");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const handleDelete = async (productId: string) => {
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadFoodItems();
+    setRefreshing(false);
+  };
+
+  const getCategoryIcon = (category: string) => {
+    const icons: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> =
+      {
+        dairy: "cheese",
+        meat: "food-steak",
+        produce: "fruit-watermelon",
+        bakery: "bread-slice",
+        snacks: "cookie",
+        other: "food",
+      };
+    return icons[category] || icons.other;
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "fresh":
+        return "#4CAF50";
+      case "expiring_soon":
+        return "#FF9800";
+      case "expired":
+        return "#F44336";
+      default:
+        return theme.colors.primary;
+    }
+  };
+
+  const getStatusText = (daysUntilExpiry: number, status: string) => {
+    if (status === "expired") {
+      return `Expired ${Math.abs(daysUntilExpiry)} days ago`;
+    } else if (status === "expiring_soon") {
+      return daysUntilExpiry === 0
+        ? "Expires today"
+        : `Expires in ${daysUntilExpiry} days`;
+    } else {
+      return `Fresh for ${daysUntilExpiry} days`;
+    }
+  };
+
+  const filteredItems = foodItems.filter((item) => {
+    const matchesSearch = item.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      selectedCategory === "all" || item.category === selectedCategory;
+    const matchesFilter =
+      selectedFilter === "all" || item.status === selectedFilter;
+
+    return matchesSearch && matchesCategory && matchesFilter;
+  });
+
+  const expiringSoonCount = foodItems.filter(
+    (item) => item.status === "expiring_soon"
+  ).length;
+  const expiredCount = foodItems.filter(
+    (item) => item.status === "expired"
+  ).length;
+
+  const handleDeleteItem = async (itemId: string) => {
     Alert.alert(
-      "Delete Product",
-      "Are you sure you want to delete this product?",
+      "Delete Item",
+      "Are you sure you want to remove this item from your pantry?",
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
             try {
-              setDeleting(productId);
               const currentUser = auth.currentUser;
               if (!currentUser?.email) {
-                throw new Error("User not logged in");
+                Alert.alert("Error", "You must be logged in to delete items");
+                return;
               }
 
               const encodedEmail = encodeURIComponent(
                 currentUser.email.replace(/\./g, ",")
               );
-              const productRef = ref(
+
+              // Delete from Firebase
+              const { remove } = await import("firebase/database");
+              const itemRef = ref(
                 database,
-                `users/${encodedEmail}/products/${productId}`
+                `users/${encodedEmail}/products/${itemId}`
               );
-              await remove(productRef);
+              await remove(itemRef);
 
               // Update local state
-              setProducts(products.filter((p) => p.id !== productId));
-              Alert.alert("Success", "Product deleted successfully");
+              setFoodItems((prev) => prev.filter((item) => item.id !== itemId));
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             } catch (error) {
-              console.error("Error deleting product:", error);
-              Alert.alert("Error", "Failed to delete product");
-            } finally {
-              setDeleting(null);
+              console.error("Error deleting item:", error);
+              Alert.alert("Error", "Failed to delete item");
             }
           },
         },
@@ -166,516 +239,249 @@ export default function HomeScreen() {
     );
   };
 
-  const renderRightActions = (productId: string) => {
-    return (
-      <View style={styles.deleteAction}>
-        <IconButton
-          icon="delete"
-          iconColor="#fff"
-          size={24}
-          onPress={() => handleDelete(productId)}
-          disabled={deleting === productId}
-        />
-      </View>
-    );
-  };
-
-  const getExpiryColor = (days: number) => {
-    if (days < 0) return theme.colors.error;
-    if (days <= 3) return theme.colors.error;
-    if (days <= 7) return theme.colors.warning;
-    return theme.colors.primary;
-  };
-
-  const getExpiryStatus = (days: number) => {
-    if (days < 0) return "Expired";
-    if (days === 0) return "Expires today";
-    if (days === 1) return "Expires tomorrow";
-    return `Expires in ${days} days`;
-  };
-
-  const getCategoryIcon = (category?: string) => {
-    const icons: Record<string, string> = {
-      dairy: "cheese",
-      meat: "food-steak",
-      fruits: "fruit-watermelon",
-      vegetables: "carrot",
-      bakery: "bread-slice",
-      canned: "food-variant",
-      frozen: "snowflake",
-      snacks: "cookie",
-      default: "food",
-    };
-    return icons[category || "default"] || "food";
-  };
-
-  const handleAddAllToCalendar = async () => {
+  const handleMarkAsConsumed = async (itemId: string) => {
     try {
-      setAddingToCalendar(true);
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
-        Alert.alert("Error", "You must be logged in to add to calendar");
+        Alert.alert("Error", "You must be logged in to mark items as consumed");
         return;
       }
 
       const encodedEmail = encodeURIComponent(
         currentUser.email.replace(/\./g, ",")
       );
-      const productsRef = ref(database, `users/${encodedEmail}/products`);
 
-      // Get all products
-      const snapshot = await get(productsRef);
-      if (!snapshot.exists()) {
-        Alert.alert("Info", "No products to add to calendar");
-        return;
-      }
+      // Delete from Firebase (marking as consumed = removing from pantry)
+      const { remove } = await import("firebase/database");
+      const itemRef = ref(database, `users/${encodedEmail}/products/${itemId}`);
+      await remove(itemRef);
 
-      let successCount = 0;
-      let failCount = 0;
-
-      // Process each product
-      const promises = snapshot.forEach(async (childSnapshot) => {
-        const product = childSnapshot.val();
-        if (!product.calendarEventId) {
-          try {
-            const eventId = await createCalendarEvent({
-              title: `${product.name} Expires`,
-              startDate: new Date(product.expiryDate),
-              endDate: new Date(product.expiryDate),
-              notes: `Product: ${product.name}\nCategory: ${product.category}\nQuantity: ${product.quantity}`,
-              location: "Your Pantry",
-            });
-
-            if (eventId) {
-              // Update product with calendar event ID
-              await update(
-                ref(
-                  database,
-                  `users/${encodedEmail}/products/${childSnapshot.key}`
-                ),
-                {
-                  calendarEventId: eventId,
-                }
-              );
-              successCount++;
-            } else {
-              failCount++;
-            }
-          } catch (error) {
-            console.error("Error adding to calendar:", error);
-            failCount++;
-          }
-        }
-      });
-
-      await Promise.all(promises);
-
-      // Show results
-      if (successCount > 0) {
-        Alert.alert(
-          "Success",
-          `Added ${successCount} products to calendar${
-            failCount > 0 ? `\nFailed to add ${failCount} products` : ""
-          }`
-        );
-      } else if (failCount > 0) {
-        Alert.alert("Error", `Failed to add ${failCount} products to calendar`);
-      } else {
-        Alert.alert("Info", "All products are already in calendar");
-      }
+      // Update local state
+      setFoodItems((prev) => prev.filter((item) => item.id !== itemId));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
-      console.error("Error adding to calendar:", error);
-      Alert.alert("Error", "Failed to add products to calendar");
-    } finally {
-      setAddingToCalendar(false);
+      console.error("Error marking item as consumed:", error);
+      Alert.alert("Error", "Failed to mark item as consumed");
     }
   };
 
-  const getCategoryColor = (category?: string) => {
-    return (
-      categoryColors[category?.toLowerCase() as keyof typeof categoryColors] ||
-      categoryColors.other
-    );
-  };
-
-  const getSortedProducts = () => {
-    let sortedProducts = [...products];
-
-    if (selectedCategory) {
-      sortedProducts = sortedProducts.filter(
-        (p) => p.category.toLowerCase() === selectedCategory.toLowerCase()
-      );
-    }
-
-    if (sortBy === "expiry") {
-      sortedProducts.sort(
-        (a, b) =>
-          new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
-      );
-    } else {
-      sortedProducts.sort((a, b) => a.category.localeCompare(b.category));
-    }
-
-    return sortedProducts;
-  };
-
-  const renderCategorySection = (category: string, products: Product[]) => {
-    if (products.length === 0) return null;
-
-    return (
-      <View key={category} style={styles.categorySection}>
-        <Surface
-          style={[
-            styles.categoryHeader,
-            { backgroundColor: getCategoryColor(category) },
-          ]}
-          elevation={2}
-        >
-          <Text variant="titleMedium" style={styles.categoryTitle}>
-            {category.charAt(0).toUpperCase() + category.slice(1)}
-          </Text>
-          <Text variant="bodySmall" style={styles.categoryCount}>
-            {products.length} items
-          </Text>
-        </Surface>
-        {products.map((product) => {
-          const daysUntilExpiry = Math.ceil(
-            (new Date(product.expiryDate).getTime() - new Date().getTime()) /
-              (1000 * 60 * 60 * 24)
-          );
-
-          return (
-            <Animated.View
-              key={product.id}
-              style={[
-                styles.cardContainer,
-                {
-                  opacity: fadeAnim,
-                  transform: [
-                    {
-                      translateY: fadeAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [50, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <Swipeable
-                renderRightActions={() => renderRightActions(product.id)}
+  const renderFoodItem = ({ item }: { item: FoodItem }) => (
+    <Card style={styles.itemCard}>
+      <Card.Content style={styles.compactContent}>
+        <View style={styles.itemRow}>
+          <View style={styles.itemLeft}>
+            <MaterialCommunityIcons
+              name={getCategoryIcon(item.category)}
+              size={24}
+              color={theme.colors.primary}
+            />
+            <View style={styles.itemInfo}>
+              <Text
+                variant="bodyLarge"
+                style={styles.itemName}
+                numberOfLines={1}
               >
-                <Pressable
-                  onPress={() => router.push(`/product?barcode=${product.id}`)}
-                >
-                  <Surface style={styles.card} elevation={2}>
-                    <LinearGradient
-                      colors={["#ffffff", getCategoryColor(product.category)]}
-                      style={styles.cardContent}
-                    >
-                      {product.imageUrl ? (
-                        <Image
-                          source={{ uri: product.imageUrl }}
-                          style={styles.image}
-                          contentFit="cover"
-                          transition={200}
-                        />
-                      ) : (
-                        <LinearGradient
-                          colors={[
-                            theme.colors.primaryContainer,
-                            theme.colors.primaryContainer + "80",
-                          ]}
-                          style={[styles.image, styles.placeholderImage]}
-                        >
-                          <IconButton
-                            icon={getCategoryIcon(product.category)}
-                            size={32}
-                            iconColor={theme.colors.primary}
-                          />
-                        </LinearGradient>
-                      )}
-                      <View style={styles.textContainer}>
-                        <Text variant="titleMedium" style={styles.productName}>
-                          {product.name}
-                        </Text>
-                        <View style={styles.detailsContainer}>
-                          <Chip
-                            icon={getCategoryIcon(product.category)}
-                            style={[
-                              styles.categoryChip,
-                              {
-                                backgroundColor: theme.colors.primaryContainer,
-                              },
-                            ]}
-                            textStyle={{ color: theme.colors.primary }}
-                          >
-                            {product.category}
-                          </Chip>
-                          <Chip
-                            icon="clock"
-                            style={[
-                              styles.expiryChip,
-                              {
-                                backgroundColor:
-                                  getExpiryColor(daysUntilExpiry),
-                              },
-                            ]}
-                            textStyle={{ color: "#fff" }}
-                          >
-                            {getExpiryStatus(daysUntilExpiry)}
-                          </Chip>
-                        </View>
-                        <Text variant="bodySmall" style={styles.dateText}>
-                          {new Date(product.expiryDate).toLocaleDateString(
-                            undefined,
-                            {
-                              weekday: "short",
-                              month: "short",
-                              day: "numeric",
-                            }
-                          )}
-                        </Text>
-                      </View>
-                    </LinearGradient>
-                  </Surface>
-                </Pressable>
-              </Swipeable>
-            </Animated.View>
-          );
-        })}
-      </View>
-    );
-  };
+                {item.name}
+              </Text>
+              <Text variant="bodySmall" style={styles.itemMeta}>
+                {item.category} • Qty: {item.quantity}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.itemRight}>
+            <View style={styles.statusContainer}>
+              <Text
+                variant="bodySmall"
+                style={[
+                  styles.statusText,
+                  { color: getStatusColor(item.status) },
+                ]}
+                numberOfLines={1}
+              >
+                {item.daysUntilExpiry >= 0
+                  ? `${item.daysUntilExpiry}d`
+                  : `${Math.abs(item.daysUntilExpiry)}d ago`}
+              </Text>
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: getStatusColor(item.status) },
+                ]}
+              />
+            </View>
+
+            <View style={styles.actionButtons}>
+              <IconButton
+                icon="check-circle"
+                size={18}
+                iconColor="#4CAF50"
+                onPress={() => handleMarkAsConsumed(item.id)}
+                style={styles.compactButton}
+              />
+              <IconButton
+                icon="delete"
+                size={18}
+                iconColor="#F44336"
+                onPress={() => handleDeleteItem(item.id)}
+                style={styles.compactButton}
+              />
+            </View>
+          </View>
+        </View>
+      </Card.Content>
+    </Card>
+  );
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading your products...</Text>
+        <Text style={styles.loadingText}>Loading your food items...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => fetchProducts(true)}
-            tintColor={theme.colors.primary}
-          />
-        }
-      >
-        <Animated.View style={{ opacity: fadeAnim }}>
-          <Surface style={styles.headerCard} elevation={4}>
-            <Text variant="headlineSmall" style={styles.headerTitle}>
-              Your Pantry
-            </Text>
-            <View style={styles.sortContainer}>
-              <Button
-                mode={sortBy === "expiry" ? "contained" : "outlined"}
-                onPress={() => setSortBy("expiry")}
-                style={styles.sortButton}
-              >
-                Sort by Expiry
-              </Button>
-              <Button
-                mode={sortBy === "category" ? "contained" : "outlined"}
-                onPress={() => setSortBy("category")}
-                style={styles.sortButton}
-              >
-                Sort by Category
-              </Button>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.categoryFilter}
+      {/* Header */}
+      <Surface style={styles.header} elevation={2}>
+        <Text variant="headlineMedium" style={styles.headerTitle}>
+          My Pantry
+        </Text>
+        <Text variant="bodyMedium" style={styles.headerSubtitle}>
+          {foodItems.length} items tracked
+        </Text>
+
+        {/* Alert Cards */}
+        {(expiringSoonCount > 0 || expiredCount > 0) && (
+          <View style={styles.alertsContainer}>
+            {expiringSoonCount > 0 && (
+              <Card style={[styles.alertCard, styles.expiringSoonCard]}>
+                <Card.Content style={styles.alertContent}>
+                  <MaterialCommunityIcons
+                    name="clock-alert"
+                    size={24}
+                    color="#FF9800"
+                  />
+                  <Text variant="bodyMedium" style={styles.alertText}>
+                    {expiringSoonCount} item{expiringSoonCount > 1 ? "s" : ""}{" "}
+                    expiring soon
+                  </Text>
+                </Card.Content>
+              </Card>
+            )}
+
+            {expiredCount > 0 && (
+              <Card style={[styles.alertCard, styles.expiredCard]}>
+                <Card.Content style={styles.alertContent}>
+                  <MaterialCommunityIcons
+                    name="alert-circle"
+                    size={24}
+                    color="#F44336"
+                  />
+                  <Text variant="bodyMedium" style={styles.alertText}>
+                    {expiredCount} item{expiredCount > 1 ? "s" : ""} expired
+                  </Text>
+                </Card.Content>
+              </Card>
+            )}
+          </View>
+        )}
+
+        {/* Search Bar */}
+        <TextInput
+          placeholder="Search your pantry..."
+          onChangeText={setSearchQuery}
+          value={searchQuery}
+          style={styles.searchBar}
+        />
+
+        {/* Category Filter */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryScroll}
+        >
+          {categories.map((category) => (
+            <Chip
+              key={category.value}
+              mode={selectedCategory === category.value ? "flat" : "outlined"}
+              selected={selectedCategory === category.value}
+              onPress={() => setSelectedCategory(category.value)}
+              style={styles.categoryChip}
             >
-              <Chip
-                selected={selectedCategory === null}
-                onPress={() => setSelectedCategory(null)}
-                style={styles.filterChip}
-              >
-                All
-              </Chip>
-              {Object.keys(categoryColors).map((category) => (
-                <Chip
-                  key={category}
-                  selected={selectedCategory === category}
-                  onPress={() => setSelectedCategory(category)}
-                  style={[
-                    styles.filterChip,
-                    { backgroundColor: getCategoryColor(category) },
-                  ]}
-                >
-                  {category.charAt(0).toUpperCase() + category.slice(1)}
-                </Chip>
-              ))}
-            </ScrollView>
+              {category.label}
+            </Chip>
+          ))}
+        </ScrollView>
+
+        {/* Status Filter */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+        >
+          {filterOptions.map((filter) => (
+            <Chip
+              key={filter.value}
+              mode={selectedFilter === filter.value ? "flat" : "outlined"}
+              selected={selectedFilter === filter.value}
+              onPress={() => setSelectedFilter(filter.value)}
+              style={styles.filterChip}
+            >
+              {filter.label}
+            </Chip>
+          ))}
+        </ScrollView>
+      </Surface>
+
+      {/* Food Items List */}
+      <FlatList
+        data={filteredItems}
+        renderItem={renderFoodItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons
+              name="fridge-outline"
+              size={64}
+              color={theme.colors.outline}
+            />
+            <Text variant="headlineSmall" style={styles.emptyTitle}>
+              No items found
+            </Text>
+            <Text variant="bodyMedium" style={styles.emptySubtitle}>
+              Scan your first receipt to start tracking food expiry dates
+            </Text>
             <Button
               mode="contained"
-              onPress={handleAddAllToCalendar}
-              loading={addingToCalendar}
-              disabled={addingToCalendar}
-              icon="calendar-plus"
-              style={styles.calendarButton}
+              onPress={() => router.push("/scan")}
+              style={styles.emptyButton}
+              icon="camera"
             >
-              Add All to Calendar
+              Scan Receipt
             </Button>
-          </Surface>
+          </View>
+        }
+      />
 
-          {products.length === 0 ? (
-            <Surface style={styles.emptyCard} elevation={2}>
-              <LinearGradient
-                colors={["#ffffff", "#f8f9fa"]}
-                style={styles.emptyContent}
-              >
-                <IconButton
-                  icon="barcode-scan"
-                  size={64}
-                  iconColor={theme.colors.primary}
-                  style={styles.emptyIcon}
-                />
-                <Text variant="headlineSmall" style={styles.emptyTitle}>
-                  No Products Yet
-                </Text>
-                <Text variant="bodyLarge" style={styles.emptyText}>
-                  Scan a barcode to start tracking your food items!
-                </Text>
-              </LinearGradient>
-            </Surface>
-          ) : sortBy === "category" ? (
-            Object.keys(categoryColors).map((category) => {
-              const categoryProducts = getSortedProducts().filter(
-                (p) => p.category.toLowerCase() === category.toLowerCase()
-              );
-              return renderCategorySection(category, categoryProducts);
-            })
-          ) : (
-            getSortedProducts().map((product) => {
-              const daysUntilExpiry = Math.ceil(
-                (new Date(product.expiryDate).getTime() -
-                  new Date().getTime()) /
-                  (1000 * 60 * 60 * 24)
-              );
-
-              return (
-                <Animated.View
-                  key={product.id}
-                  style={[
-                    styles.cardContainer,
-                    {
-                      opacity: fadeAnim,
-                      transform: [
-                        {
-                          translateY: fadeAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [50, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <Swipeable
-                    renderRightActions={() => renderRightActions(product.id)}
-                  >
-                    <Pressable
-                      onPress={() =>
-                        router.push(`/product?barcode=${product.id}`)
-                      }
-                    >
-                      <Surface style={styles.card} elevation={2}>
-                        <LinearGradient
-                          colors={[
-                            "#ffffff",
-                            getCategoryColor(product.category),
-                          ]}
-                          style={styles.cardContent}
-                        >
-                          {product.imageUrl ? (
-                            <Image
-                              source={{ uri: product.imageUrl }}
-                              style={styles.image}
-                              contentFit="cover"
-                              transition={200}
-                            />
-                          ) : (
-                            <LinearGradient
-                              colors={[
-                                theme.colors.primaryContainer,
-                                theme.colors.primaryContainer + "80",
-                              ]}
-                              style={[styles.image, styles.placeholderImage]}
-                            >
-                              <IconButton
-                                icon={getCategoryIcon(product.category)}
-                                size={32}
-                                iconColor={theme.colors.primary}
-                              />
-                            </LinearGradient>
-                          )}
-                          <View style={styles.textContainer}>
-                            <Text
-                              variant="titleMedium"
-                              style={styles.productName}
-                            >
-                              {product.name}
-                            </Text>
-                            <View style={styles.detailsContainer}>
-                              <Chip
-                                icon={getCategoryIcon(product.category)}
-                                style={[
-                                  styles.categoryChip,
-                                  {
-                                    backgroundColor:
-                                      theme.colors.primaryContainer,
-                                  },
-                                ]}
-                                textStyle={{ color: theme.colors.primary }}
-                              >
-                                {product.category}
-                              </Chip>
-                              <Chip
-                                icon="clock"
-                                style={[
-                                  styles.expiryChip,
-                                  {
-                                    backgroundColor:
-                                      getExpiryColor(daysUntilExpiry),
-                                  },
-                                ]}
-                                textStyle={{ color: "#fff" }}
-                              >
-                                {getExpiryStatus(daysUntilExpiry)}
-                              </Chip>
-                            </View>
-                            <Text variant="bodySmall" style={styles.dateText}>
-                              {new Date(product.expiryDate).toLocaleDateString(
-                                undefined,
-                                {
-                                  weekday: "short",
-                                  month: "short",
-                                  day: "numeric",
-                                }
-                              )}
-                            </Text>
-                          </View>
-                        </LinearGradient>
-                      </Surface>
-                    </Pressable>
-                  </Swipeable>
-                </Animated.View>
-              );
-            })
-          )}
-        </Animated.View>
-      </ScrollView>
+      {/* Floating Action Button */}
+      <Surface style={styles.fab} elevation={4}>
+        <IconButton
+          icon="camera"
+          size={28}
+          iconColor="#fff"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push("/scan");
+          }}
+        />
+      </Surface>
     </View>
   );
 }
@@ -685,11 +491,136 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
-  scrollView: {
-    flex: 1,
+  header: {
+    padding: 16,
+    backgroundColor: "#fff",
   },
-  scrollContent: {
-    paddingBottom: 16,
+  headerTitle: {
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    color: "#666",
+    marginBottom: 16,
+  },
+  alertsContainer: {
+    marginBottom: 16,
+  },
+  alertCard: {
+    marginBottom: 8,
+  },
+  expiringSoonCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#FF9800",
+  },
+  expiredCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#F44336",
+  },
+  alertContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  alertText: {
+    marginLeft: 12,
+    fontWeight: "500",
+  },
+  searchBar: {
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#f5f5f5",
+    fontSize: 16,
+  },
+  categoryScroll: {
+    marginBottom: 16,
+  },
+  categoryChip: {
+    marginRight: 8,
+  },
+  filterScroll: {
+    marginBottom: 16,
+  },
+  filterChip: {
+    marginRight: 8,
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 100,
+  },
+  itemCard: {
+    marginBottom: 12,
+    borderRadius: 12,
+  },
+  itemRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  itemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  itemInfo: {
+    marginLeft: 12,
+  },
+  itemName: {
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  itemMeta: {
+    color: "#666",
+    textTransform: "capitalize",
+    marginBottom: 2,
+  },
+  itemRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  statusContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  statusText: {
+    fontWeight: "500",
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  actionButtons: {
+    flexDirection: "row",
+  },
+  compactContent: {
+    padding: 12,
+  },
+  compactButton: {
+    marginLeft: 8,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyTitle: {
+    marginTop: 16,
+    marginBottom: 8,
+    fontWeight: "600",
+  },
+  emptySubtitle: {
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  emptyButton: {
+    paddingHorizontal: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -702,134 +633,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
   },
-  cardContainer: {
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  card: {
-    borderRadius: 24,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  cardContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-  },
-  image: {
-    width: 90,
-    height: 90,
-    borderRadius: 16,
-    marginRight: 16,
-  },
-  placeholderImage: {
+  fab: {
+    position: "absolute",
+    margin: 16,
+    right: 0,
+    bottom: 0,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#2196F3",
     justifyContent: "center",
     alignItems: "center",
-  },
-  textContainer: {
-    flex: 1,
-  },
-  productName: {
-    marginBottom: 8,
-    fontWeight: "600",
-    color: "#1a1a1a",
-  },
-  detailsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8,
-  },
-  categoryChip: {
-    height: 32,
-    borderRadius: 16,
-  },
-  expiryChip: {
-    height: 32,
-    borderRadius: 16,
-  },
-  dateText: {
-    color: "#666",
-    fontSize: 13,
-  },
-  emptyCard: {
-    margin: 16,
-    borderRadius: 24,
-    backgroundColor: "#fff",
-    overflow: "hidden",
-  },
-  emptyContent: {
-    padding: 32,
-    alignItems: "center",
-  },
-  emptyIcon: {
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    marginBottom: 12,
-    fontWeight: "600",
-    color: "#1a1a1a",
-  },
-  emptyText: {
-    textAlign: "center",
-    color: "#666",
-    lineHeight: 22,
-  },
-  deleteAction: {
-    backgroundColor: "#ff4444",
-    justifyContent: "center",
-    alignItems: "center",
-    width: 80,
-    marginVertical: 8,
-    marginRight: 16,
-    borderRadius: 24,
-  },
-  headerCard: {
-    margin: 16,
-    marginBottom: 8,
-    borderRadius: 24,
-    padding: 16,
-    backgroundColor: "#fff",
-  },
-  headerTitle: {
-    marginBottom: 16,
-    fontWeight: "600",
-    color: "#1a1a1a",
-  },
-  calendarButton: {
-    borderRadius: 16,
-    backgroundColor: "#4CAF50",
-  },
-  sortContainer: {
-    flexDirection: "row",
-    marginBottom: 16,
-    gap: 8,
-  },
-  sortButton: {
-    flex: 1,
-  },
-  categoryFilter: {
-    marginBottom: 16,
-  },
-  filterChip: {
-    marginRight: 8,
-  },
-  categorySection: {
-    marginBottom: 16,
-  },
-  categoryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-  },
-  categoryTitle: {
-    fontWeight: "600",
-  },
-  categoryCount: {
-    color: "#666",
   },
 });

@@ -1,64 +1,41 @@
 import { CameraView } from "expo-camera";
-import * as FileSystem from "expo-file-system";
+import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { ref, set } from "firebase/database";
-import { useEffect, useState } from "react";
-import { Alert, Animated, Dimensions, StyleSheet, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Dimensions,
+  Image,
+  StyleSheet,
+  View,
+} from "react-native";
 import {
   ActivityIndicator,
   Button,
-  FAB,
   IconButton,
   Surface,
   Text,
   useTheme,
 } from "react-native-paper";
-import { auth, database } from "../firebaseConfig";
-import { getExpiryDate } from "../utils/expiryDate";
+import { analyzeReceipt } from "../services/receiptAnalysis";
 
-interface ProductInfo {
-  product_name: string;
-  brands?: string;
-  image_url?: string;
-  categories_tags?: string[];
-  nutriments?: {
-    energy_100g?: number;
-    carbohydrates_100g?: number;
-    proteins_100g?: number;
-    fat_100g?: number;
-    serving_size?: string;
-  };
-  ingredients_text?: string;
-  nutritionInfo?: {
-    caloriesPerServing?: number;
-    servingSize?: string;
-    carbs?: {
-      amount: number;
-      dailyValue: number;
-    };
-    protein?: {
-      amount: number;
-      dailyValue: number;
-    };
-    fat?: {
-      amount: number;
-      dailyValue: number;
-    };
-  };
-  ingredients?: string[];
-}
+type ScreenState = "camera" | "preview" | "processing";
 
 export default function ScanScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const [screenState, setScreenState] = useState<ScreenState>("camera");
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(true);
-  const [isRecipeMode, setIsRecipeMode] = useState(false);
-  const [isReceiptMode, setIsReceiptMode] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [scanLineAnim] = useState(new Animated.Value(0));
+  const [flashMode, setFlashMode] = useState<"on" | "off">("off");
+  const [cameraType, setCameraType] = useState<"front" | "back">("back");
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const cameraRef = useRef<CameraView>(null);
   const { width } = Dimensions.get("window");
 
   useEffect(() => {
@@ -86,294 +63,202 @@ export default function ScanScreen() {
     }
   }, [scanning]);
 
-  const fetchProductInfo = async (
-    barcode: string
-  ): Promise<ProductInfo | null> => {
+  const handleReceiptCapture = async () => {
     try {
-      console.log(`[Scan] Fetching product info for barcode: ${barcode}`);
-      const response = await fetch(
-        `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
-      );
-      const data = await response.json();
+      if (!cameraRef.current) return;
 
-      if (data.status === 1 && data.product) {
-        console.log("[Scan] Product found:", {
-          name: data.product.product_name,
-          brand: data.product.brands,
-          category: data.product.categories_tags?.[0],
-          image: data.product.image_url,
-          nutrition: data.product.nutriments,
-          ingredients: data.product.ingredients_text,
-        });
+      setScanning(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        // Process nutritional information
-        const nutritionInfo = data.product.nutriments
-          ? {
-              caloriesPerServing: data.product.nutriments.energy_100g,
-              servingSize: data.product.nutriments.serving_size || "100g",
-              carbs: {
-                amount: data.product.nutriments.carbohydrates_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.carbohydrates_100g || 0) / 275) *
-                    100
-                ), // Based on 275g daily value
-              },
-              protein: {
-                amount: data.product.nutriments.proteins_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.proteins_100g || 0) / 50) * 100
-                ), // Based on 50g daily value
-              },
-              fat: {
-                amount: data.product.nutriments.fat_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.fat_100g || 0) / 65) * 100
-                ), // Based on 65g daily value
-              },
-            }
-          : undefined;
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 1,
+        base64: true,
+      });
 
-        // Process ingredients
-        const ingredients = data.product.ingredients_text
-          ? data.product.ingredients_text
-              .split(",")
-              .map((i: string) => i.trim())
-          : undefined;
-
-        return {
-          ...data.product,
-          nutritionInfo,
-          ingredients,
-        };
-      }
-      console.log("[Scan] Product not found in Open Food Facts");
-      return null;
+      setCapturedImage(photo.uri);
+      setScreenState("preview");
     } catch (error) {
-      console.error("[Scan] Error fetching product info:", error);
-      return null;
+      console.error("Error capturing receipt:", error);
+      Alert.alert("Error", "Failed to capture receipt. Please try again.");
+      setScanning(true);
     }
   };
 
-  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+  const handleConfirmImage = async () => {
     try {
-      setScanning(false);
+      if (!capturedImage) return;
+
+      setScreenState("processing");
       setLoading(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      const currentUser = auth.currentUser;
-      if (!currentUser?.email) {
-        Alert.alert("Error", "You must be logged in to scan products");
-        return;
-      }
+      // Process the captured receipt image
+      const result = await analyzeReceipt(capturedImage);
 
-      const productInfo = await fetchProductInfo(data);
-      if (!productInfo) {
-        Alert.alert("Product Not Found", "Would you like to add it manually?", [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => setScanning(true),
-          },
-          {
-            text: "Add Manually",
-            onPress: () => router.push("/manual-entry"),
-          },
-        ]);
-        return;
-      }
-
-      if (isRecipeMode) {
-        // Handle recipe scanning
-        const predictedExpiryDate = getExpiryDate(productInfo);
-        const encodedEmail = encodeURIComponent(
-          currentUser.email.replace(/\./g, ",")
-        );
-
-        // Add each ingredient as a separate product
-        if (productInfo.ingredients) {
-          for (const ingredient of productInfo.ingredients) {
-            const ingredientRef = ref(
-              database,
-              `users/${encodedEmail}/products/${Date.now()}-${ingredient}`
-            );
-            await set(ingredientRef, {
-              name: ingredient,
-              expiryDate: predictedExpiryDate.toISOString(),
-              category: productInfo.categories_tags?.[0] || "other",
-              quantity: 1,
-              imageUrl: productInfo.image_url,
-            });
-          }
-        }
-
-        Alert.alert(
-          "Success",
-          "Recipe ingredients have been added to your inventory!"
-        );
-        router.push("/");
-      } else {
-        // Regular product scanning
-        const predictedExpiryDate = getExpiryDate(productInfo);
-        router.push({
-          pathname: "/product",
-          params: {
-            barcode: data,
-            name: productInfo.product_name,
-            brand: productInfo.brands,
-            imageUrl: productInfo.image_url,
-            category: productInfo.categories_tags?.[0],
-            nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
-            ingredients: JSON.stringify(productInfo.ingredients),
-            expiryDate: predictedExpiryDate.toISOString(),
-          },
-        });
-      }
+      // Navigate to receipt analysis screen with the results
+      router.push({
+        pathname: "/receipt-scan",
+        params: {
+          imageUri: capturedImage,
+          purchaseDate: result.purchaseDate,
+          items: JSON.stringify(result.items),
+        },
+      });
     } catch (error) {
-      console.error("Error handling barcode:", error);
-      Alert.alert("Error", "Failed to process barcode. Please try again.");
+      console.error("Error processing receipt:", error);
+      Alert.alert("Error", "Failed to process receipt. Please try again.");
+      setScreenState("camera");
       setScanning(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReceiptScan = async () => {
+  const handleRetake = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCapturedImage(null);
+    setScreenState("camera");
+    setScanning(true);
+  };
+
+  const handleUploadReceipt = async () => {
     try {
       setLoading(true);
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 1,
       });
 
-      if (!result.canceled) {
-        const imageUri = result.assets[0].uri;
-        await processReceiptImage(imageUri);
+      if (!pickerResult.canceled) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setCapturedImage(pickerResult.assets[0].uri);
+        setScreenState("preview");
       }
     } catch (error) {
-      console.error("Error scanning receipt:", error);
-      Alert.alert("Error", "Failed to process receipt. Please try again.");
+      console.error("Error uploading receipt:", error);
+      Alert.alert("Error", "Failed to upload receipt. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const processReceiptImage = async (imageUri: string) => {
-    try {
-      // Convert image to base64
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Here you would typically send the image to an OCR service
-      // For now, we'll simulate OCR with a mock response
-      const mockOcrResult = {
-        text: "MILK 2% 1GAL\nBREAD WHITE LOAF\nEGGS DOZEN\nBANANAS 2LB",
-        confidence: 0.95,
-      };
-
-      // Parse the OCR result
-      const products = parseReceiptText(mockOcrResult.text);
-
-      // Add products to database
-      const currentUser = auth.currentUser;
-      if (!currentUser?.email) {
-        Alert.alert("Error", "You must be logged in to scan receipts");
-        return;
-      }
-
-      const encodedEmail = encodeURIComponent(
-        currentUser.email.replace(/\./g, ",")
-      );
-
-      for (const product of products) {
-        const productRef = ref(
-          database,
-          `users/${encodedEmail}/products/${Date.now()}-${product.name}`
-        );
-        await set(productRef, {
-          name: product.name,
-          expiryDate: product.expiryDate.toISOString(),
-          category: product.category,
-          quantity: product.quantity,
-        });
-      }
-
-      Alert.alert(
-        "Success",
-        "Receipt items have been added to your inventory!"
-      );
-      router.push("/");
-    } catch (error) {
-      console.error("Error processing receipt:", error);
-      Alert.alert("Error", "Failed to process receipt. Please try again.");
-    }
+  const toggleFlash = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFlashMode(flashMode === "on" ? "off" : "on");
   };
 
-  const parseReceiptText = (text: string) => {
-    // Split text into lines and filter out empty lines
-    const lines = text.split("\n").filter((line) => line.trim());
-
-    return lines.map((line) => {
-      // Simple parsing logic - in a real app this would be more sophisticated
-      const parts = line.split(" ");
-      const quantity = parseInt(parts[0]) || 1;
-      const name = parts.slice(1).join(" ").toLowerCase();
-
-      // Predict expiry date based on product name
-      const expiryDate = getExpiryDate({ product_name: name });
-
-      // Determine category based on product name
-      const category = determineCategory(name);
-
-      return {
-        name,
-        quantity,
-        expiryDate,
-        category,
-      };
-    });
+  const toggleCamera = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCameraType(cameraType === "back" ? "front" : "back");
   };
 
-  const determineCategory = (name: string) => {
-    // Simple category determination - in a real app this would be more sophisticated
-    const categories = {
-      dairy: ["milk", "cheese", "yogurt", "cream"],
-      bakery: ["bread", "bun", "roll", "bagel"],
-      produce: ["banana", "apple", "orange", "lettuce"],
-      meat: ["beef", "chicken", "pork", "turkey"],
-      eggs: ["egg"],
-    };
+  useFocusEffect(
+    useCallback(() => {
+      // Reset screen when component comes into focus
+      setScreenState("camera");
+      setScanning(true);
+      setCapturedImage(null);
+      setLoading(false);
+    }, [])
+  );
 
-    for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some((keyword) => name.includes(keyword))) {
-        return category;
-      }
-    }
+  if (screenState === "processing") {
+    return (
+      <View
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+      >
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Processing receipt...</Text>
+        <Text style={styles.loadingSubtext}>This may take a few moments</Text>
+      </View>
+    );
+  }
 
-    return "other";
-  };
+  if (screenState === "preview") {
+    return (
+      <View style={styles.container}>
+        <Image source={{ uri: capturedImage! }} style={styles.previewImage} />
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.7)"]}
+          style={styles.previewOverlay}
+        >
+          <View style={styles.header}>
+            <IconButton
+              icon="arrow-left"
+              size={24}
+              iconColor="#fff"
+              onPress={handleRetake}
+            />
+            <Text style={styles.headerTitle}>Verify Receipt</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <View style={styles.previewContent}>
+            <Text style={styles.previewText}>
+              Is this receipt clear and readable?
+            </Text>
+            <Text style={styles.previewSubtext}>
+              Make sure all text is visible and not blurry
+            </Text>
+          </View>
+
+          <View style={styles.previewControls}>
+            <Button
+              mode="outlined"
+              onPress={handleRetake}
+              style={styles.previewButton}
+              textColor="#fff"
+              icon="camera-retake"
+            >
+              Retake
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleConfirmImage}
+              style={styles.previewButton}
+              icon="check"
+            >
+              Looks Good
+            </Button>
+          </View>
+        </LinearGradient>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {scanning ? (
-        <CameraView
-          style={styles.camera}
-          barcodeScannerSettings={{
-            barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
-          }}
-          onBarcodeScanned={handleBarCodeScanned}
-          facing="back"
+      <CameraView
+        ref={cameraRef}
+        style={styles.camera}
+        facing={cameraType}
+        flash={flashMode}
+        enableTorch={flashMode === "on"}
+      >
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.7)"]}
+          style={styles.overlay}
         >
-          <LinearGradient
-            colors={["rgba(0,0,0,0.7)", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.7)"]}
-            style={styles.overlay}
-          >
-            <View style={styles.scanArea}>
-              <View style={styles.scanCorner} />
-              <View style={[styles.scanCorner, styles.topRight]} />
-              <View style={[styles.scanCorner, styles.bottomLeft]} />
-              <View style={[styles.scanCorner, styles.bottomRight]} />
+          <View style={styles.header}>
+            <IconButton
+              icon="arrow-left"
+              size={24}
+              iconColor="#fff"
+              onPress={() => router.back()}
+            />
+            <Text style={styles.headerTitle}>Scan Receipt</Text>
+            <IconButton
+              icon="upload"
+              size={24}
+              iconColor="#fff"
+              onPress={handleUploadReceipt}
+            />
+          </View>
+
+          <View style={styles.scanArea}>
+            <View style={styles.scanFrame}>
               <Animated.View
                 style={[
                   styles.scanLine,
@@ -382,7 +267,7 @@ export default function ScanScreen() {
                       {
                         translateY: scanLineAnim.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0, 250],
+                          outputRange: [0, 200],
                         }),
                       },
                     ],
@@ -390,75 +275,35 @@ export default function ScanScreen() {
                 ]}
               />
             </View>
-            <Surface style={styles.instructionContainer} elevation={4}>
+            <Text style={styles.scanText}>
+              Position the receipt within the frame
+            </Text>
+          </View>
+
+          <View style={styles.controls}>
+            <IconButton
+              icon={flashMode === "on" ? "flash" : "flash-off"}
+              size={32}
+              iconColor="#fff"
+              onPress={toggleFlash}
+            />
+            <Surface style={styles.captureButton} elevation={4}>
               <IconButton
-                icon="barcode-scan"
-                size={24}
+                icon="camera"
+                size={32}
                 iconColor={theme.colors.primary}
-                style={styles.instructionIcon}
+                onPress={handleReceiptCapture}
               />
-              <Text style={styles.scanText}>
-                {isRecipeMode
-                  ? "Scan recipe ingredients"
-                  : "Position barcode within frame"}
-              </Text>
             </Surface>
-          </LinearGradient>
-        </CameraView>
-      ) : (
-        <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
-          <LinearGradient
-            colors={["#f6f7f9", "#ffffff"]}
-            style={styles.buttonContainer}
-          >
-            <Surface style={styles.resultCard} elevation={4}>
-              <IconButton
-                icon="check-circle"
-                size={48}
-                iconColor={theme.colors.primary}
-                style={styles.resultIcon}
-              />
-              <Text style={styles.scanAgainText}>
-                Ready to scan another product?
-              </Text>
-              <Button
-                mode="contained"
-                onPress={() => setScanning(true)}
-                style={styles.button}
-                icon="barcode-scan"
-                contentStyle={styles.buttonContent}
-              >
-                Scan Again
-              </Button>
-            </Surface>
-          </LinearGradient>
-        </Animated.View>
-      )}
-      {loading && (
-        <Surface style={styles.loadingContainer} elevation={4}>
-          <LinearGradient
-            colors={["rgba(0,0,0,0.9)", "rgba(0,0,0,0.8)"]}
-            style={styles.loadingGradient}
-          >
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Processing...</Text>
-          </LinearGradient>
-        </Surface>
-      )}
-      <View style={styles.fabContainer}>
-        <FAB
-          icon={isRecipeMode ? "food" : "barcode-scan"}
-          style={[styles.fab, styles.fabLeft]}
-          onPress={() => setIsRecipeMode(!isRecipeMode)}
-          label={isRecipeMode ? "Recipe Mode" : "Product Mode"}
-        />
-        <FAB
-          icon="receipt"
-          style={[styles.fab, styles.fabRight]}
-          onPress={handleReceiptScan}
-          label="Scan Receipt"
-        />
-      </View>
+            <IconButton
+              icon="camera-flip"
+              size={32}
+              iconColor="#fff"
+              onPress={toggleCamera}
+            />
+          </View>
+        </LinearGradient>
+      </CameraView>
     </View>
   );
 }
@@ -473,141 +318,104 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
+    justifyContent: "space-between",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    paddingTop: 60,
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "600",
+  },
+  scanArea: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  scanArea: {
-    width: 250,
-    height: 250,
+  scanFrame: {
+    width: "80%",
+    height: 200,
     borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: "transparent",
-    position: "relative",
-  },
-  scanCorner: {
-    position: "absolute",
-    width: 24,
-    height: 24,
     borderColor: "#fff",
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    top: -2,
-    left: -2,
-  },
-  topRight: {
-    right: -2,
-    left: undefined,
-    borderLeftWidth: 0,
-    borderRightWidth: 4,
-  },
-  bottomLeft: {
-    top: undefined,
-    bottom: -2,
-    borderTopWidth: 0,
-    borderBottomWidth: 4,
-  },
-  bottomRight: {
-    top: undefined,
-    left: undefined,
-    right: -2,
-    bottom: -2,
-    borderTopWidth: 0,
-    borderLeftWidth: 0,
-    borderRightWidth: 4,
-    borderBottomWidth: 4,
+    borderRadius: 16,
+    overflow: "hidden",
   },
   scanLine: {
-    position: "absolute",
     width: "100%",
     height: 2,
     backgroundColor: "#6200ee",
-    opacity: 0.8,
-  },
-  instructionContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.9)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
-    marginTop: 32,
-  },
-  instructionIcon: {
-    margin: 0,
-    marginRight: 8,
   },
   scanText: {
-    color: "#1a1a1a",
+    color: "#fff",
+    marginTop: 16,
     fontSize: 16,
-    fontWeight: "500",
+    textAlign: "center",
   },
-  buttonContainer: {
+  controls: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    padding: 24,
+    paddingBottom: 40,
+  },
+  captureButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 18,
+    color: "#6200ee",
+  },
+  loadingSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#666",
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  previewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "space-between",
+  },
+  previewContent: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
-  resultCard: {
-    width: "100%",
-    padding: 32,
-    borderRadius: 24,
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  resultIcon: {
-    marginBottom: 16,
-  },
-  scanAgainText: {
-    fontSize: 20,
-    marginBottom: 24,
-    textAlign: "center",
-    color: "#1a1a1a",
-    fontWeight: "500",
-  },
-  button: {
-    width: "100%",
-    borderRadius: 16,
-  },
-  buttonContent: {
-    paddingVertical: 8,
-  },
-  loadingContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingGradient: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
+  previewText: {
     color: "#fff",
-    marginTop: 16,
+    fontSize: 24,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  previewSubtext: {
+    color: "rgba(255,255,255,0.8)",
     fontSize: 16,
-    fontWeight: "500",
+    textAlign: "center",
   },
-  fabContainer: {
-    position: "absolute",
-    bottom: 16,
-    left: 0,
-    right: 0,
+  previewControls: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
+    justifyContent: "space-around",
+    padding: 24,
+    paddingBottom: 40,
   },
-  fab: {
-    margin: 0,
-  },
-  fabLeft: {
-    marginRight: 8,
-  },
-  fabRight: {
-    marginLeft: 8,
+  previewButton: {
+    flex: 1,
+    marginHorizontal: 8,
   },
 });

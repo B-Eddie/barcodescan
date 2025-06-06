@@ -195,6 +195,35 @@ export default function SettingsScreen() {
         </Text>
       </Surface>
 
+      {/* Profile Section */}
+      <Card style={styles.card}>
+        <Card.Content>
+          <View style={styles.profileSection}>
+            <MaterialCommunityIcons
+              name="account-circle"
+              size={48}
+              color={theme.colors.primary}
+            />
+            <View style={styles.profileInfo}>
+              <Text variant="titleMedium" style={styles.profileTitle}>
+                Account
+              </Text>
+              <Text variant="bodyMedium" style={styles.profileEmail}>
+                {currentUser?.email || "Not logged in"}
+              </Text>
+            </View>
+          </View>
+          <Button
+            mode="outlined"
+            onPress={handleLogout}
+            style={styles.signOutButton}
+            icon="logout"
+          >
+            Sign Out
+          </Button>
+        </Card.Content>
+      </Card>
+
       <Card style={styles.card}>
         <Card.Content>
           <Text variant="titleLarge">Data Management</Text>
@@ -262,15 +291,6 @@ export default function SettingsScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium">Account</Text>
-          <Button mode="outlined" onPress={handleLogout} style={styles.button}>
-            Logout
-          </Button>
-        </Card.Content>
-      </Card>
     </ScrollView>
   );
 }
@@ -316,5 +336,22 @@ const styles = StyleSheet.create({
   },
   statItem: {
     alignItems: "center",
+  },
+  profileSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  profileInfo: {
+    marginLeft: 16,
+  },
+  profileTitle: {
+    marginBottom: 4,
+  },
+  profileEmail: {
+    fontSize: 16,
+  },
+  signOutButton: {
+    marginTop: 16,
   },
 });
