@@ -17,7 +17,7 @@ export const Colors = {
   gray900: '#212121',
   black: '#000000',
 
-  // Accent Colors (Teal/Blue theme)
+  // Primary Colors (Teal theme)
   primary50: '#E0F2F1',
   primary100: '#B2DFDB',
   primary200: '#80CBC4',
@@ -28,6 +28,30 @@ export const Colors = {
   primary700: '#00796B',
   primary800: '#00695C',
   primary900: '#004D40',
+
+  // Secondary Colors (Blue-gray)
+  secondary50: '#F8FAFC',
+  secondary100: '#F1F5F9',
+  secondary200: '#E2E8F0',
+  secondary300: '#CBD5E1',
+  secondary400: '#94A3B8',
+  secondary500: '#64748B',
+  secondary600: '#475569',
+  secondary700: '#334155',
+  secondary800: '#1E293B',
+  secondary900: '#0F172A',
+
+  // Accent Colors (Orange)
+  accent50: '#FFF7ED',
+  accent100: '#FFEDD5',
+  accent200: '#FED7AA',
+  accent300: '#FDBA74',
+  accent400: '#FB923C',
+  accent500: '#F97316',
+  accent600: '#EA580C',
+  accent700: '#C2410C',
+  accent800: '#9A3412',
+  accent900: '#7C2D12',
 
   // Semantic Colors
   success: '#4CAF50',

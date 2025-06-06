@@ -57,19 +57,7 @@ export default function RootLayout() {
             <Tabs
               screenOptions={{
                 headerShown: false,
-                tabBarStyle: {
-                  height: 60,
-                  paddingBottom: 8,
-                  paddingTop: 8,
-                  backgroundColor: theme.colors.background,
-                  borderTopColor: theme.colors.outline,
-                },
-                tabBarActiveTintColor: theme.colors.primary,
-                tabBarInactiveTintColor: theme.colors.outline,
-                headerStyle: {
-                  backgroundColor: theme.colors.background,
-                },
-                headerTintColor: theme.colors.onBackground,
+                tabBarStyle: { display: "none" }, // Hide default tab bar
               }}
             >
               <Tabs.Screen

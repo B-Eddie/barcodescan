@@ -219,231 +219,242 @@ export default function ProductDetailScreen() {
   );
 
   return (
-    <LinearGradient colors={["#f6f7f9", "#ffffff"]} style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <Animated.View style={{ opacity: fadeAnim }}>
-          <Surface style={styles.imageCard} elevation={4}>
-            {product.imageUrl ? (
-              <Image
-                source={{ uri: product.imageUrl }}
-                style={styles.image}
-                contentFit="cover"
-                transition={200}
-              />
-            ) : (
-              <LinearGradient
-                colors={[
-                  theme.colors.primaryContainer,
-                  theme.colors.primaryContainer + "80",
-                ]}
-                style={styles.placeholderImage}
-              >
-                <IconButton
-                  icon={getCategoryIcon(product.category)}
-                  size={64}
-                  iconColor={theme.colors.primary}
+    <AppLayout>
+      <LinearGradient colors={["#f6f7f9", "#ffffff"]} style={styles.container}>
+        <ScrollView style={styles.scrollView}>
+          <Animated.View style={{ opacity: fadeAnim }}>
+            <Surface style={styles.imageCard} elevation={4}>
+              {product.imageUrl ? (
+                <Image
+                  source={{ uri: product.imageUrl }}
+                  style={styles.image}
+                  contentFit="cover"
+                  transition={200}
                 />
-              </LinearGradient>
-            )}
-          </Surface>
+              ) : (
+                <LinearGradient
+                  colors={[
+                    theme.colors.primaryContainer,
+                    theme.colors.primaryContainer + "80",
+                  ]}
+                  style={styles.placeholderImage}
+                >
+                  <IconButton
+                    icon={getCategoryIcon(product.category)}
+                    size={64}
+                    iconColor={theme.colors.primary}
+                  />
+                </LinearGradient>
+              )}
+            </Surface>
 
-          <Surface style={styles.detailsCard} elevation={4}>
-            <Text variant="headlineSmall" style={styles.productName}>
-              {product.name}
-            </Text>
-            {product.brand && (
-              <Text variant="titleMedium" style={styles.brand}>
-                {product.brand}
+            <Surface style={styles.detailsCard} elevation={4}>
+              <Text variant="headlineSmall" style={styles.productName}>
+                {product.name}
               </Text>
-            )}
-
-            <View style={styles.chipContainer}>
-              <Chip
-                icon={getCategoryIcon(product.category)}
-                style={[
-                  styles.categoryChip,
-                  { backgroundColor: theme.colors.primaryContainer },
-                ]}
-                textStyle={{ color: theme.colors.primary }}
-              >
-                {product.category}
-              </Chip>
-              <Chip
-                icon="clock"
-                style={[
-                  styles.expiryChip,
-                  { backgroundColor: getExpiryColor(daysUntilExpiry) },
-                ]}
-                textStyle={{ color: "#fff" }}
-              >
-                {getExpiryStatus(daysUntilExpiry)}
-              </Chip>
-            </View>
-
-            <View style={styles.infoContainer}>
-              <View style={styles.infoRow}>
-                <IconButton
-                  icon="calendar"
-                  size={24}
-                  iconColor={theme.colors.primary}
-                />
-                <Text style={styles.infoText}>
-                  {new Date(product.expiryDate).toLocaleDateString(undefined, {
-                    weekday: "long",
-                    month: "long",
-                    day: "numeric",
-                  })}
+              {product.brand && (
+                <Text variant="titleMedium" style={styles.brand}>
+                  {product.brand}
                 </Text>
-              </View>
-              <View style={styles.infoRow}>
-                <IconButton
-                  icon="package-variant"
-                  size={24}
-                  iconColor={theme.colors.primary}
-                />
-                <Text style={styles.infoText}>
-                  Quantity: {product.quantity}
-                </Text>
-              </View>
-
-              {/* Nutritional Information Section */}
-              {product.nutritionInfo && (
-                <View style={styles.nutritionSection}>
-                  <Text variant="titleMedium" style={styles.sectionTitle}>
-                    Nutritional Information
-                  </Text>
-                  <View style={styles.nutritionGrid}>
-                    <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionLabel}>Calories</Text>
-                      <Text style={styles.nutritionValue}>
-                        {product.nutritionInfo.caloriesPerServing || '?'} kcal
-                      </Text>
-                      <Text style={styles.servingSize}>
-                        per {product.nutritionInfo.servingSize || 'serving'}
-                      </Text>
-                    </View>
-                    
-                    <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionLabel}>Carbs</Text>
-                      <Text style={styles.nutritionValue}>
-                        {product.nutritionInfo.carbs?.amount || '?'}g
-                      </Text>
-                      <Text style={styles.dailyValue}>
-                        {product.nutritionInfo.carbs?.dailyValue || '?'}% DV
-                      </Text>
-                    </View>
-
-                    <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionLabel}>Protein</Text>
-                      <Text style={styles.nutritionValue}>
-                        {product.nutritionInfo.protein?.amount || '?'}g
-                      </Text>
-                      <Text style={styles.dailyValue}>
-                        {product.nutritionInfo.protein?.dailyValue || '?'}% DV
-                      </Text>
-                    </View>
-
-                    <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionLabel}>Fat</Text>
-                      <Text style={styles.nutritionValue}>
-                        {product.nutritionInfo.fat?.amount || '?'}g
-                      </Text>
-                      <Text style={styles.dailyValue}>
-                        {product.nutritionInfo.fat?.dailyValue || '?'}% DV
-                      </Text>
-                    </View>
-                  </View>
-                </View>
               )}
 
-              {/* Ingredients Section */}
-              <View style={styles.ingredientsSection}>
-                <Text variant="titleMedium" style={styles.sectionTitle}>
-                  Ingredients
-                </Text>
-                {product.ingredientsImageUrl ? (
-                  <Image
-                    source={{ uri: product.ingredientsImageUrl }}
-                    style={styles.ingredientsImage}
-                    contentFit="contain"
+              <View style={styles.chipContainer}>
+                <Chip
+                  icon={getCategoryIcon(product.category)}
+                  style={[
+                    styles.categoryChip,
+                    { backgroundColor: theme.colors.primaryContainer },
+                  ]}
+                  textStyle={{ color: theme.colors.primary }}
+                >
+                  {product.category}
+                </Chip>
+                <Chip
+                  icon="clock"
+                  style={[
+                    styles.expiryChip,
+                    { backgroundColor: getExpiryColor(daysUntilExpiry) },
+                  ]}
+                  textStyle={{ color: "#fff" }}
+                >
+                  {getExpiryStatus(daysUntilExpiry)}
+                </Chip>
+              </View>
+
+              <View style={styles.infoContainer}>
+                <View style={styles.infoRow}>
+                  <IconButton
+                    icon="calendar"
+                    size={24}
+                    iconColor={theme.colors.primary}
                   />
-                ) : product.ingredients ? (
-                  <View style={styles.ingredientsList}>
-                    {product.ingredients.map((ingredient, index) => (
-                      <Text key={index} style={styles.ingredientItem}>
-                        • {ingredient}
-                      </Text>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={styles.noIngredientsContainer}>
-                    <IconButton
-                      icon="camera"
-                      size={32}
-                      iconColor={theme.colors.primary}
-                      onPress={() => router.push(`/scan-ingredients?productId=${product.id}`)}
-                    />
-                    <Text style={styles.noIngredientsText}>
-                      No ingredients information available
+                  <Text style={styles.infoText}>
+                    {new Date(product.expiryDate).toLocaleDateString(
+                      undefined,
+                      {
+                        weekday: "long",
+                        month: "long",
+                        day: "numeric",
+                      }
+                    )}
+                  </Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <IconButton
+                    icon="package-variant"
+                    size={24}
+                    iconColor={theme.colors.primary}
+                  />
+                  <Text style={styles.infoText}>
+                    Quantity: {product.quantity}
+                  </Text>
+                </View>
+
+                {/* Nutritional Information Section */}
+                {product.nutritionInfo && (
+                  <View style={styles.nutritionSection}>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>
+                      Nutritional Information
                     </Text>
+                    <View style={styles.nutritionGrid}>
+                      <View style={styles.nutritionItem}>
+                        <Text style={styles.nutritionLabel}>Calories</Text>
+                        <Text style={styles.nutritionValue}>
+                          {product.nutritionInfo.caloriesPerServing || "?"} kcal
+                        </Text>
+                        <Text style={styles.servingSize}>
+                          per {product.nutritionInfo.servingSize || "serving"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.nutritionItem}>
+                        <Text style={styles.nutritionLabel}>Carbs</Text>
+                        <Text style={styles.nutritionValue}>
+                          {product.nutritionInfo.carbs?.amount || "?"}g
+                        </Text>
+                        <Text style={styles.dailyValue}>
+                          {product.nutritionInfo.carbs?.dailyValue || "?"}% DV
+                        </Text>
+                      </View>
+
+                      <View style={styles.nutritionItem}>
+                        <Text style={styles.nutritionLabel}>Protein</Text>
+                        <Text style={styles.nutritionValue}>
+                          {product.nutritionInfo.protein?.amount || "?"}g
+                        </Text>
+                        <Text style={styles.dailyValue}>
+                          {product.nutritionInfo.protein?.dailyValue || "?"}% DV
+                        </Text>
+                      </View>
+
+                      <View style={styles.nutritionItem}>
+                        <Text style={styles.nutritionLabel}>Fat</Text>
+                        <Text style={styles.nutritionValue}>
+                          {product.nutritionInfo.fat?.amount || "?"}g
+                        </Text>
+                        <Text style={styles.dailyValue}>
+                          {product.nutritionInfo.fat?.dailyValue || "?"}% DV
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                 )}
+
+                {/* Ingredients Section */}
+                <View style={styles.ingredientsSection}>
+                  <Text variant="titleMedium" style={styles.sectionTitle}>
+                    Ingredients
+                  </Text>
+                  {product.ingredientsImageUrl ? (
+                    <Image
+                      source={{ uri: product.ingredientsImageUrl }}
+                      style={styles.ingredientsImage}
+                      contentFit="contain"
+                    />
+                  ) : product.ingredients ? (
+                    <View style={styles.ingredientsList}>
+                      {product.ingredients.map((ingredient, index) => (
+                        <Text key={index} style={styles.ingredientItem}>
+                          • {ingredient}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.noIngredientsContainer}>
+                      <IconButton
+                        icon="camera"
+                        size={32}
+                        iconColor={theme.colors.primary}
+                        onPress={() =>
+                          router.push(
+                            `/scan-ingredients?productId=${product.id}`
+                          )
+                        }
+                      />
+                      <Text style={styles.noIngredientsText}>
+                        No ingredients information available
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
+            </Surface>
+
+            <View style={styles.buttonContainer}>
+              <Button
+                mode="contained"
+                onPress={() => router.push(`/product?barcode=${product.id}`)}
+                style={styles.editButton}
+                icon="pencil"
+              >
+                Edit Product
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handleCalendarToggle}
+                style={styles.calendarButton}
+                icon={
+                  product.calendarEventId ? "calendar-remove" : "calendar-plus"
+                }
+              >
+                {product.calendarEventId
+                  ? "Remove from Calendar"
+                  : "Add to Calendar"}
+              </Button>
+              <Button
+                mode="outlined"
+                onPress={() => router.back()}
+                style={styles.backButton}
+                icon="arrow-left"
+              >
+                Go Back
+              </Button>
             </View>
-          </Surface>
 
-          <View style={styles.buttonContainer}>
-            <Button
-              mode="contained"
-              onPress={() => router.push(`/product?barcode=${product.id}`)}
-              style={styles.editButton}
-              icon="pencil"
-            >
-              Edit Product
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleCalendarToggle}
-              style={styles.calendarButton}
-              icon={
-                product.calendarEventId ? "calendar-remove" : "calendar-plus"
-              }
-            >
-              {product.calendarEventId
-                ? "Remove from Calendar"
-                : "Add to Calendar"}
-            </Button>
-            <Button
-              mode="outlined"
-              onPress={() => router.back()}
-              style={styles.backButton}
-              icon="arrow-left"
-            >
-              Go Back
-            </Button>
-          </View>
-
-          <View style={styles.actions}>
-            <Button
-              mode="contained"
-              onPress={handleCalendarToggle}
-              style={styles.actionButton}
-              icon="calendar"
-            >
-              Add to Calendar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={() => router.push(`/scan-ingredients?productId=${product.id}`)}
-              style={styles.actionButton}
-              icon="format-list-bulleted"
-            >
-              Scan Ingredients
-            </Button>
-          </View>
-        </Animated.View>
-      </ScrollView>
-    </LinearGradient>
+            <View style={styles.actions}>
+              <Button
+                mode="contained"
+                onPress={handleCalendarToggle}
+                style={styles.actionButton}
+                icon="calendar"
+              >
+                Add to Calendar
+              </Button>
+              <Button
+                mode="contained"
+                onPress={() =>
+                  router.push(`/scan-ingredients?productId=${product.id}`)
+                }
+                style={styles.actionButton}
+                icon="format-list-bulleted"
+              >
+                Scan Ingredients
+              </Button>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </LinearGradient>
+    </AppLayout>
   );
 }
 
@@ -553,50 +564,50 @@ const styles = StyleSheet.create({
     marginTop: 24,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: "#e0e0e0",
   },
   nutritionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
     marginTop: 12,
   },
   nutritionItem: {
-    width: '48%',
-    backgroundColor: '#f5f5f5',
+    width: "48%",
+    backgroundColor: "#f5f5f5",
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   nutritionLabel: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginBottom: 4,
   },
   nutritionValue: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontWeight: "600",
+    color: "#1a1a1a",
   },
   servingSize: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   dailyValue: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   ingredientsSection: {
     marginTop: 24,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: "#e0e0e0",
   },
   ingredientsImage: {
-    width: '100%',
+    width: "100%",
     height: 200,
     borderRadius: 12,
     marginTop: 12,
@@ -606,33 +617,33 @@ const styles = StyleSheet.create({
   },
   ingredientItem: {
     fontSize: 14,
-    color: '#1a1a1a',
+    color: "#1a1a1a",
     marginBottom: 8,
     lineHeight: 20,
   },
   noIngredientsContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 12,
     padding: 24,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     borderRadius: 12,
   },
   noIngredientsText: {
     marginTop: 8,
     marginBottom: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
   },
   scanButton: {
     marginTop: 8,
   },
   sectionTitle: {
     marginBottom: 12,
-    color: '#1a1a1a',
+    color: "#1a1a1a",
   },
   actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     padding: 16,
     gap: 8,
   },

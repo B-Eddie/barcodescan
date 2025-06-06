@@ -1,28 +1,32 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { get, ref } from "firebase/database";
-import { useEffect, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useRouter } from "expo-router";
+import { get, ref, remove } from "firebase/database";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Dimensions,
   FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
+import { ActivityIndicator, Card, Text } from "react-native-paper";
+import AppLayout from "../components/AppLayout";
 import {
-  ActivityIndicator,
-  Button,
-  Card,
-  Chip,
-  IconButton,
-  Surface,
-  Text,
-  useTheme,
-} from "react-native-paper";
+  Colors,
+  CommonStyles,
+  SafeArea,
+  Shadows,
+  Spacing,
+} from "../constants/designSystem";
 import { auth, database } from "../firebaseConfig";
+
+const { width } = Dimensions.get("window");
 
 interface FoodItem {
   id: string;
@@ -36,39 +40,57 @@ interface FoodItem {
   status: "fresh" | "expiring_soon" | "expired";
 }
 
+interface QuickStat {
+  icon: string;
+  label: string;
+  value: number;
+  color: string;
+  gradient: string[];
+}
+
 export default function HomeScreen() {
   const router = useRouter();
-  const theme = useTheme();
-
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState("all");
-  const [loading, setLoading] = useState(true);
 
-  // Categories for filtering
-  const categories = [
-    { label: "All", value: "all" },
-    { label: "Dairy", value: "dairy" },
-    { label: "Meat", value: "meat" },
-    { label: "Produce", value: "produce" },
-    { label: "Bakery", value: "bakery" },
-    { label: "Snacks", value: "snacks" },
-    { label: "Other", value: "other" },
-  ];
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const headerScale = useRef(new Animated.Value(0.95)).current;
 
-  // Filter options
-  const filterOptions = [
-    { label: "All Items", value: "all" },
-    { label: "Fresh", value: "fresh" },
-    { label: "Expiring Soon", value: "expiring_soon" },
-    { label: "Expired", value: "expired" },
-  ];
+  useFocusEffect(
+    useCallback(() => {
+      loadFoodItems();
+    }, [])
+  );
 
   useEffect(() => {
-    loadFoodItems();
-  }, []);
+    if (!loading) {
+      // Animate in after data loads
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.spring(headerScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }),
+      ]).start();
+    }
+  }, [loading]);
 
   const loadFoodItems = async () => {
     try {
@@ -107,7 +129,7 @@ export default function HomeScreen() {
         });
       }
 
-      // Calculate days until expiry and status for each item
+      // Calculate status for each item
       const itemsWithStatus = foodItemsList.map((item) => {
         let status: "fresh" | "expiring_soon" | "expired";
         if (item.daysUntilExpiry < 0) {
@@ -141,61 +163,32 @@ export default function HomeScreen() {
   };
 
   const getCategoryIcon = (category: string) => {
-    const icons: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> =
-      {
-        dairy: "cheese",
-        meat: "food-steak",
-        produce: "fruit-watermelon",
-        bakery: "bread-slice",
-        snacks: "cookie",
-        other: "food",
-      };
+    const icons: Record<string, string> = {
+      dairy: "cheese",
+      meat: "food-steak",
+      produce: "fruit-watermelon",
+      bakery: "bread-slice",
+      snacks: "cookie",
+      beverages: "cup",
+      canned: "food-variant",
+      frozen: "snowflake",
+      other: "food",
+    };
     return icons[category] || icons.other;
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case "fresh":
-        return "#4CAF50";
+        return Colors.success;
       case "expiring_soon":
-        return "#FF9800";
+        return Colors.warning;
       case "expired":
-        return "#F44336";
+        return Colors.error;
       default:
-        return theme.colors.primary;
+        return Colors.primary500;
     }
   };
-
-  const getStatusText = (daysUntilExpiry: number, status: string) => {
-    if (status === "expired") {
-      return `Expired ${Math.abs(daysUntilExpiry)} days ago`;
-    } else if (status === "expiring_soon") {
-      return daysUntilExpiry === 0
-        ? "Expires today"
-        : `Expires in ${daysUntilExpiry} days`;
-    } else {
-      return `Fresh for ${daysUntilExpiry} days`;
-    }
-  };
-
-  const filteredItems = foodItems.filter((item) => {
-    const matchesSearch = item.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      selectedCategory === "all" || item.category === selectedCategory;
-    const matchesFilter =
-      selectedFilter === "all" || item.status === selectedFilter;
-
-    return matchesSearch && matchesCategory && matchesFilter;
-  });
-
-  const expiringSoonCount = foodItems.filter(
-    (item) => item.status === "expiring_soon"
-  ).length;
-  const expiredCount = foodItems.filter(
-    (item) => item.status === "expired"
-  ).length;
 
   const handleDeleteItem = async (itemId: string) => {
     Alert.alert(
@@ -218,15 +211,12 @@ export default function HomeScreen() {
                 currentUser.email.replace(/\./g, ",")
               );
 
-              // Delete from Firebase
-              const { remove } = await import("firebase/database");
               const itemRef = ref(
                 database,
                 `users/${encodedEmail}/products/${itemId}`
               );
               await remove(itemRef);
 
-              // Update local state
               setFoodItems((prev) => prev.filter((item) => item.id !== itemId));
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             } catch (error) {
@@ -251,12 +241,9 @@ export default function HomeScreen() {
         currentUser.email.replace(/\./g, ",")
       );
 
-      // Delete from Firebase (marking as consumed = removing from pantry)
-      const { remove } = await import("firebase/database");
       const itemRef = ref(database, `users/${encodedEmail}/products/${itemId}`);
       await remove(itemRef);
 
-      // Update local state
       setFoodItems((prev) => prev.filter((item) => item.id !== itemId));
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
@@ -265,384 +252,560 @@ export default function HomeScreen() {
     }
   };
 
-  const renderFoodItem = ({ item }: { item: FoodItem }) => (
-    <Card style={styles.itemCard}>
-      <Card.Content style={styles.compactContent}>
-        <View style={styles.itemRow}>
-          <View style={styles.itemLeft}>
-            <MaterialCommunityIcons
-              name={getCategoryIcon(item.category)}
-              size={24}
-              color={theme.colors.primary}
-            />
-            <View style={styles.itemInfo}>
-              <Text
-                variant="bodyLarge"
-                style={styles.itemName}
-                numberOfLines={1}
-              >
-                {item.name}
-              </Text>
-              <Text variant="bodySmall" style={styles.itemMeta}>
-                {item.category} • Qty: {item.quantity}
-              </Text>
-            </View>
-          </View>
+  // Calculate stats
+  const totalItems = foodItems.length;
+  const expiringSoonCount = foodItems.filter(
+    (item) => item.status === "expiring_soon"
+  ).length;
+  const expiredCount = foodItems.filter(
+    (item) => item.status === "expired"
+  ).length;
+  const freshCount = foodItems.filter((item) => item.status === "fresh").length;
 
-          <View style={styles.itemRight}>
-            <View style={styles.statusContainer}>
-              <Text
-                variant="bodySmall"
-                style={[
-                  styles.statusText,
-                  { color: getStatusColor(item.status) },
-                ]}
-                numberOfLines={1}
-              >
-                {item.daysUntilExpiry >= 0
-                  ? `${item.daysUntilExpiry}d`
-                  : `${Math.abs(item.daysUntilExpiry)}d ago`}
-              </Text>
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: getStatusColor(item.status) },
-                ]}
-              />
-            </View>
+  const quickStats: QuickStat[] = [
+    {
+      icon: "food",
+      label: "Total Items",
+      value: totalItems,
+      color: Colors.primary500,
+      gradient: [Colors.primary400, Colors.primary600],
+    },
+    {
+      icon: "check-circle",
+      label: "Fresh",
+      value: freshCount,
+      color: Colors.success,
+      gradient: ["#66BB6A", "#4CAF50"],
+    },
+    {
+      icon: "clock-alert",
+      label: "Expiring",
+      value: expiringSoonCount,
+      color: Colors.warning,
+      gradient: ["#FFB74D", "#FF9800"],
+    },
+    {
+      icon: "close-circle",
+      label: "Expired",
+      value: expiredCount,
+      color: Colors.error,
+      gradient: ["#EF5350", "#F44336"],
+    },
+  ];
 
-            <View style={styles.actionButtons}>
-              <IconButton
-                icon="check-circle"
-                size={18}
-                iconColor="#4CAF50"
-                onPress={() => handleMarkAsConsumed(item.id)}
-                style={styles.compactButton}
-              />
-              <IconButton
-                icon="delete"
-                size={18}
-                iconColor="#F44336"
-                onPress={() => handleDeleteItem(item.id)}
-                style={styles.compactButton}
-              />
-            </View>
-          </View>
+  const filteredItems = foodItems.filter((item) => {
+    const matchesSearch = item.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      selectedCategory === "all" || item.category === selectedCategory;
+    const matchesFilter =
+      selectedFilter === "all" || item.status === selectedFilter;
+
+    return matchesSearch && matchesCategory && matchesFilter;
+  });
+
+  const renderQuickStat = ({
+    item,
+    index,
+  }: {
+    item: QuickStat;
+    index: number;
+  }) => (
+    <Animated.View
+      style={[
+        styles.statCard,
+        {
+          opacity: fadeAnim,
+          transform: [
+            {
+              translateY: slideAnim.interpolate({
+                inputRange: [0, 50],
+                outputRange: [0, 50],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <LinearGradient
+        colors={item.gradient}
+        style={styles.statGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.statContent}>
+          <MaterialCommunityIcons
+            name={item.icon as any}
+            size={24}
+            color={Colors.white}
+          />
+          <Text style={styles.statValue}>{item.value}</Text>
+          <Text style={styles.statLabel}>{item.label}</Text>
         </View>
-      </Card.Content>
-    </Card>
+      </LinearGradient>
+    </Animated.View>
   );
+
+  const renderFoodItem = ({
+    item,
+    index,
+  }: {
+    item: FoodItem;
+    index: number;
+  }) => {
+    const animatedValue = new Animated.Value(0);
+
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration: 300,
+      delay: index * 50,
+      useNativeDriver: true,
+    }).start();
+
+    return (
+      <Animated.View
+        style={[
+          {
+            opacity: animatedValue,
+            transform: [
+              {
+                translateX: animatedValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [50, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={() => router.push(`/product-detail?barcode=${item.id}`)}
+          activeOpacity={0.7}
+        >
+          <Card style={styles.foodCard}>
+            <Card.Content style={styles.foodCardContent}>
+              <View style={styles.foodItemHeader}>
+                <View style={styles.foodItemInfo}>
+                  <View style={styles.iconContainer}>
+                    <MaterialCommunityIcons
+                      name={getCategoryIcon(item.category) as any}
+                      size={20}
+                      color={Colors.primary500}
+                    />
+                  </View>
+                  <View style={styles.foodItemDetails}>
+                    <Text style={styles.foodItemName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.foodItemMeta}>
+                      {item.category} • Qty: {item.quantity}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.foodItemActions}>
+                  <View style={styles.statusContainer}>
+                    <View
+                      style={[
+                        styles.statusDot,
+                        { backgroundColor: getStatusColor(item.status) },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.daysText,
+                        { color: getStatusColor(item.status) },
+                      ]}
+                    >
+                      {item.daysUntilExpiry >= 0
+                        ? `${item.daysUntilExpiry}d`
+                        : `${Math.abs(item.daysUntilExpiry)}d ago`}
+                    </Text>
+                  </View>
+
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      onPress={() => handleMarkAsConsumed(item.id)}
+                      style={[
+                        styles.actionButton,
+                        { backgroundColor: Colors.success },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={16}
+                        color={Colors.white}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteItem(item.id)}
+                      style={[
+                        styles.actionButton,
+                        { backgroundColor: Colors.error },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="delete"
+                        size={16}
+                        color={Colors.white}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading your food items...</Text>
-      </View>
+      <AppLayout>
+        <View style={[CommonStyles.container, CommonStyles.centerContent]}>
+          <ActivityIndicator size="large" color={Colors.primary500} />
+          <Text style={styles.loadingText}>Loading your pantry...</Text>
+        </View>
+      </AppLayout>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <Surface style={styles.header} elevation={2}>
-        <Text variant="headlineMedium" style={styles.headerTitle}>
-          My Pantry
-        </Text>
-        <Text variant="bodyMedium" style={styles.headerSubtitle}>
-          {foodItems.length} items tracked
-        </Text>
-
-        {/* Alert Cards */}
-        {(expiringSoonCount > 0 || expiredCount > 0) && (
-          <View style={styles.alertsContainer}>
-            {expiringSoonCount > 0 && (
-              <Card style={[styles.alertCard, styles.expiringSoonCard]}>
-                <Card.Content style={styles.alertContent}>
-                  <MaterialCommunityIcons
-                    name="clock-alert"
-                    size={24}
-                    color="#FF9800"
-                  />
-                  <Text variant="bodyMedium" style={styles.alertText}>
-                    {expiringSoonCount} item{expiringSoonCount > 1 ? "s" : ""}{" "}
-                    expiring soon
-                  </Text>
-                </Card.Content>
-              </Card>
-            )}
-
-            {expiredCount > 0 && (
-              <Card style={[styles.alertCard, styles.expiredCard]}>
-                <Card.Content style={styles.alertContent}>
-                  <MaterialCommunityIcons
-                    name="alert-circle"
-                    size={24}
-                    color="#F44336"
-                  />
-                  <Text variant="bodyMedium" style={styles.alertText}>
-                    {expiredCount} item{expiredCount > 1 ? "s" : ""} expired
-                  </Text>
-                </Card.Content>
-              </Card>
-            )}
-          </View>
-        )}
-
-        {/* Search Bar */}
-        <TextInput
-          placeholder="Search your pantry..."
-          onChangeText={setSearchQuery}
-          value={searchQuery}
-          style={styles.searchBar}
-        />
-
-        {/* Category Filter */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoryScroll}
-        >
-          {categories.map((category) => (
-            <Chip
-              key={category.value}
-              mode={selectedCategory === category.value ? "flat" : "outlined"}
-              selected={selectedCategory === category.value}
-              onPress={() => setSelectedCategory(category.value)}
-              style={styles.categoryChip}
-            >
-              {category.label}
-            </Chip>
-          ))}
-        </ScrollView>
-
-        {/* Status Filter */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterScroll}
-        >
-          {filterOptions.map((filter) => (
-            <Chip
-              key={filter.value}
-              mode={selectedFilter === filter.value ? "flat" : "outlined"}
-              selected={selectedFilter === filter.value}
-              onPress={() => setSelectedFilter(filter.value)}
-              style={styles.filterChip}
-            >
-              {filter.label}
-            </Chip>
-          ))}
-        </ScrollView>
-      </Surface>
-
-      {/* Food Items List */}
-      <FlatList
-        data={filteredItems}
-        renderItem={renderFoodItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+    <AppLayout>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <MaterialCommunityIcons
-              name="fridge-outline"
-              size={64}
-              color={theme.colors.outline}
-            />
-            <Text variant="headlineSmall" style={styles.emptyTitle}>
-              No items found
-            </Text>
-            <Text variant="bodyMedium" style={styles.emptySubtitle}>
-              Scan your first receipt to start tracking food expiry dates
-            </Text>
-            <Button
-              mode="contained"
+      >
+        {/* Header with Gradient */}
+        <LinearGradient
+          colors={[Colors.primary500, Colors.primary400]}
+          style={styles.header}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Animated.View
+            style={[
+              styles.headerContent,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: headerScale }],
+              },
+            ]}
+          >
+            <View style={styles.headerText}>
+              <Text style={styles.welcomeText}>Welcome back!</Text>
+              <Text style={styles.headerTitle}>My Smart Pantry</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.addButton}
               onPress={() => router.push("/scan")}
-              style={styles.emptyButton}
-              icon="camera"
             >
-              Scan Receipt
-            </Button>
-          </View>
-        }
-      />
+              <MaterialCommunityIcons
+                name="plus"
+                size={24}
+                color={Colors.white}
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        </LinearGradient>
 
-      {/* Floating Action Button */}
-      <Surface style={styles.fab} elevation={4}>
-        <IconButton
-          icon="camera"
-          size={28}
-          iconColor="#fff"
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push("/scan");
-          }}
-        />
-      </Surface>
-    </View>
+        {/* Quick Stats */}
+        <View style={styles.statsSection}>
+          <FlatList
+            data={quickStats}
+            renderItem={renderQuickStat}
+            keyExtractor={(item) => item.label}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.statsContainer}
+          />
+        </View>
+
+        {/* Recent Items Section */}
+        <View style={styles.itemsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Items</Text>
+            <TouchableOpacity onPress={() => router.push("/calendar")}>
+              <Text style={styles.viewAllText}>View Calendar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {filteredItems.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons
+                name="basket-outline"
+                size={64}
+                color={Colors.gray400}
+              />
+              <Text style={styles.emptyTitle}>Your pantry is empty</Text>
+              <Text style={styles.emptySubtitle}>
+                Start by scanning some products!
+              </Text>
+              <TouchableOpacity
+                style={styles.scanButton}
+                onPress={() => router.push("/scan")}
+              >
+                <Text style={styles.scanButtonText}>Scan Items</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredItems.slice(0, 10)} // Show only first 10 items
+              renderItem={renderFoodItem}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+              contentContainerStyle={styles.itemsList}
+            />
+          )}
+        </View>
+
+        {/* Bottom Spacing */}
+        <View style={{ height: 120 }} />
+      </ScrollView>
+    </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.background,
   },
+
   header: {
-    padding: 16,
-    backgroundColor: "#fff",
+    paddingTop: SafeArea.top + Spacing.lg,
+    paddingBottom: Spacing.xl,
+    paddingHorizontal: SafeArea.horizontal,
   },
-  headerTitle: {
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    color: "#666",
-    marginBottom: 16,
-  },
-  alertsContainer: {
-    marginBottom: 16,
-  },
-  alertCard: {
-    marginBottom: 8,
-  },
-  expiringSoonCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: "#FF9800",
-  },
-  expiredCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: "#F44336",
-  },
-  alertContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  alertText: {
-    marginLeft: 12,
-    fontWeight: "500",
-  },
-  searchBar: {
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#f5f5f5",
-    fontSize: 16,
-  },
-  categoryScroll: {
-    marginBottom: 16,
-  },
-  categoryChip: {
-    marginRight: 8,
-  },
-  filterScroll: {
-    marginBottom: 16,
-  },
-  filterChip: {
-    marginRight: 8,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  itemCard: {
-    marginBottom: 12,
-    borderRadius: 12,
-  },
-  itemRow: {
+
+  headerContent: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  itemLeft: {
-    flexDirection: "row",
+
+  headerText: {
+    flex: 1,
+  },
+
+  welcomeText: {
+    fontSize: 16,
+    color: Colors.white,
+    opacity: 0.9,
+    marginBottom: Spacing.xs,
+  },
+
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: Colors.white,
+  },
+
+  addButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statsSection: {
+    marginTop: -Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+
+  statsContainer: {
+    paddingHorizontal: SafeArea.horizontal,
+    gap: Spacing.md,
+  },
+
+  statCard: {
+    width: width * 0.22,
+    height: 90,
+    borderRadius: 16,
+    ...Shadows.md,
+  },
+
+  statGradient: {
+    flex: 1,
+    borderRadius: 16,
+    padding: Spacing.md,
+    justifyContent: "center",
     alignItems: "center",
   },
-  itemInfo: {
-    marginLeft: 12,
+
+  statContent: {
+    alignItems: "center",
   },
-  itemName: {
+
+  statValue: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.white,
+    marginTop: Spacing.xs,
+  },
+
+  statLabel: {
+    fontSize: 11,
+    color: Colors.white,
+    opacity: 0.9,
+    textAlign: "center",
+    marginTop: 2,
+  },
+
+  itemsSection: {
+    paddingHorizontal: SafeArea.horizontal,
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+
+  sectionTitle: {
+    fontSize: 22,
     fontWeight: "600",
-    marginBottom: 2,
+    color: Colors.gray900,
   },
-  itemMeta: {
-    color: "#666",
-    textTransform: "capitalize",
-    marginBottom: 2,
+
+  viewAllText: {
+    fontSize: 16,
+    color: Colors.primary500,
+    fontWeight: "500",
   },
-  itemRight: {
+
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: Spacing["4xl"],
+  },
+
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: Colors.gray700,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+
+  emptySubtitle: {
+    fontSize: 16,
+    color: Colors.gray500,
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+  },
+
+  scanButton: {
+    backgroundColor: Colors.primary500,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+  },
+
+  scanButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  itemsList: {
+    gap: Spacing.md,
+  },
+
+  foodCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    ...Shadows.sm,
+    marginBottom: Spacing.sm,
+  },
+
+  foodCardContent: {
+    padding: Spacing.lg,
+  },
+
+  foodItemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  foodItemInfo: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
   },
+
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primary50,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+
+  foodItemDetails: {
+    flex: 1,
+  },
+
+  foodItemName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.gray900,
+    marginBottom: 2,
+  },
+
+  foodItemMeta: {
+    fontSize: 13,
+    color: Colors.gray600,
+  },
+
+  foodItemActions: {
+    alignItems: "flex-end",
+    gap: Spacing.sm,
+  },
+
   statusContainer: {
     flexDirection: "row",
     alignItems: "center",
+    gap: Spacing.xs,
   },
-  statusText: {
-    fontWeight: "500",
-  },
+
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginHorizontal: 4,
   },
-  actionButtons: {
-    flexDirection: "row",
-  },
-  compactContent: {
-    padding: 12,
-  },
-  compactButton: {
-    marginLeft: 8,
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    marginTop: 16,
-    marginBottom: 8,
+
+  daysText: {
+    fontSize: 14,
     fontWeight: "600",
   },
-  emptySubtitle: {
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 24,
-    lineHeight: 20,
+
+  actionButtons: {
+    flexDirection: "row",
+    gap: Spacing.xs,
   },
-  emptyButton: {
-    paddingHorizontal: 24,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
+
+  actionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
-    backgroundColor: "#f8f9fa",
+    justifyContent: "center",
   },
+
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#666",
-  },
-  fab: {
-    position: "absolute",
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#2196F3",
-    justifyContent: "center",
-    alignItems: "center",
+    ...CommonStyles.body,
+    marginTop: Spacing.md,
+    textAlign: "center",
   },
 });

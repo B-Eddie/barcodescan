@@ -18,6 +18,7 @@ import {
   Text,
   useTheme,
 } from "react-native-paper";
+import AppLayout from "../components/AppLayout";
 import {
   Colors,
   CommonStyles,
@@ -166,13 +167,17 @@ Use this exact structure:
       // Remove markdown code blocks if present
       cleanedText = cleanedText.replace(/```json\s*/gi, "");
       cleanedText = cleanedText.replace(/```\s*/g, "");
-      cleanedText = cleanedText.replace(/^[^[]*/, ""); // Remove everything before first [
-      cleanedText = cleanedText.replace(/[^\]]*$/, "]"); // Remove everything after last ]
 
-      // Remove any leading/trailing text that isn't JSON
+      // Extract JSON array more carefully
       const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         cleanedText = jsonMatch[0];
+      } else {
+        // If no array found, try to find object and wrap in array
+        const objectMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (objectMatch) {
+          cleanedText = `[${objectMatch[0]}]`;
+        }
       }
 
       // Parse the JSON
@@ -212,181 +217,189 @@ Use this exact structure:
 
   if (loading) {
     return (
-      <SafeAreaView
-        style={[CommonStyles.container, CommonStyles.centerContent]}
-      >
-        <ActivityIndicator size="large" color={Colors.primary500} />
-        <Text style={styles.loadingText}>Loading available ingredients...</Text>
-      </SafeAreaView>
+      <AppLayout>
+        <SafeAreaView
+          style={[CommonStyles.container, CommonStyles.centerContent]}
+        >
+          <ActivityIndicator size="large" color={Colors.primary500} />
+          <Text style={styles.loadingText}>
+            Loading available ingredients...
+          </Text>
+        </SafeAreaView>
+      </AppLayout>
     );
   }
 
   return (
-    <SafeAreaView style={CommonStyles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={CommonStyles.h2}>Recipe Generator</Text>
-        <Text style={CommonStyles.caption}>
-          Create delicious recipes from your pantry items
-        </Text>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Available Ingredients */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={CommonStyles.h4}>Available Ingredients</Text>
-            <Text style={CommonStyles.caption}>
-              {availableIngredients.length} items in your pantry
-            </Text>
-          </View>
-
-          <View style={styles.ingredientsContainer}>
-            {availableIngredients.length === 0 ? (
-              <View style={styles.emptyState}>
-                <IconButton
-                  icon="basket-outline"
-                  size={48}
-                  iconColor={Colors.gray400}
-                />
-                <Text style={CommonStyles.body}>No ingredients available</Text>
-                <Text style={CommonStyles.caption}>
-                  Add items to your pantry to generate recipes
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.chipContainer}>
-                {availableIngredients.map((ingredient, index) => (
-                  <Chip
-                    key={index}
-                    style={styles.chip}
-                    textStyle={styles.chipText}
-                    icon="food"
-                  >
-                    {ingredient}
-                  </Chip>
-                ))}
-              </View>
-            )}
-          </View>
+    <AppLayout>
+      <SafeAreaView style={CommonStyles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={CommonStyles.h2}>Recipe Generator</Text>
+          <Text style={CommonStyles.caption}>
+            Create delicious recipes from your pantry items
+          </Text>
         </View>
 
-        {/* Generate Button */}
-        <View style={styles.buttonContainer}>
-          <Button
-            mode="contained"
-            onPress={generateRecipes}
-            loading={generating}
-            disabled={generating || availableIngredients.length === 0}
-            style={styles.generateButton}
-            contentStyle={styles.buttonContent}
-            labelStyle={styles.buttonLabel}
-            icon="chef-hat"
-          >
-            {generating ? "Generating Recipes..." : "Generate Recipes"}
-          </Button>
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Available Ingredients */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={CommonStyles.h4}>Available Ingredients</Text>
+              <Text style={CommonStyles.caption}>
+                {availableIngredients.length} items in your pantry
+              </Text>
+            </View>
 
-        {/* Recipes */}
-        {recipes.map((recipe, index) => (
-          <Card key={index} style={styles.recipeCard}>
-            <Card.Content style={styles.recipeContent}>
-              {/* Recipe Header */}
-              <View style={styles.recipeHeader}>
-                <Text style={CommonStyles.h3}>{recipe.title}</Text>
-                <View style={styles.recipeMeta}>
-                  <Chip
-                    icon="clock-outline"
-                    style={styles.metaChip}
-                    textStyle={styles.metaChipText}
-                    compact
-                  >
-                    {recipe.prepTime}
-                  </Chip>
-                  <Chip
-                    icon="star-outline"
-                    style={[
-                      styles.metaChip,
-                      {
-                        backgroundColor:
-                          recipe.difficulty === "Easy"
-                            ? Colors.success
-                            : recipe.difficulty === "Medium"
-                            ? Colors.warning
-                            : Colors.error,
-                      },
-                    ]}
-                    textStyle={[styles.metaChipText, { color: Colors.white }]}
-                    compact
-                  >
-                    {recipe.difficulty}
-                  </Chip>
-                </View>
-              </View>
-
-              {/* Nutrition Info */}
-              <View style={styles.nutritionCard}>
-                <Text style={CommonStyles.h4}>Nutrition per serving</Text>
-                <View style={styles.caloriesRow}>
-                  <Text style={styles.caloriesText}>
-                    {recipe.nutritionInfo.calories} calories
+            <View style={styles.ingredientsContainer}>
+              {availableIngredients.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <IconButton
+                    icon="basket-outline"
+                    size={48}
+                    iconColor={Colors.gray400}
+                  />
+                  <Text style={CommonStyles.body}>
+                    No ingredients available
+                  </Text>
+                  <Text style={CommonStyles.caption}>
+                    Add items to your pantry to generate recipes
                   </Text>
                 </View>
-                <View style={styles.macrosContainer}>
-                  <View style={styles.macroItem}>
-                    <Text style={styles.macroValue}>
-                      {recipe.nutritionInfo.carbsPercentage}%
-                    </Text>
-                    <Text style={styles.macroLabel}>Carbs</Text>
-                  </View>
-                  <View style={styles.macroItem}>
-                    <Text style={styles.macroValue}>
-                      {recipe.nutritionInfo.proteinPercentage}%
-                    </Text>
-                    <Text style={styles.macroLabel}>Protein</Text>
-                  </View>
-                  <View style={styles.macroItem}>
-                    <Text style={styles.macroValue}>
-                      {recipe.nutritionInfo.fatPercentage}%
-                    </Text>
-                    <Text style={styles.macroLabel}>Fat</Text>
+              ) : (
+                <View style={styles.chipContainer}>
+                  {availableIngredients.map((ingredient, index) => (
+                    <Chip
+                      key={index}
+                      style={styles.chip}
+                      textStyle={styles.chipText}
+                      icon="food"
+                    >
+                      {ingredient}
+                    </Chip>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Generate Button */}
+          <View style={styles.buttonContainer}>
+            <Button
+              mode="contained"
+              onPress={generateRecipes}
+              loading={generating}
+              disabled={generating || availableIngredients.length === 0}
+              style={styles.generateButton}
+              contentStyle={styles.buttonContent}
+              labelStyle={styles.buttonLabel}
+              icon="chef-hat"
+            >
+              {generating ? "Generating Recipes..." : "Generate Recipes"}
+            </Button>
+          </View>
+
+          {/* Recipes */}
+          {recipes.map((recipe, index) => (
+            <Card key={index} style={styles.recipeCard}>
+              <Card.Content style={styles.recipeContent}>
+                {/* Recipe Header */}
+                <View style={styles.recipeHeader}>
+                  <Text style={CommonStyles.h3}>{recipe.title}</Text>
+                  <View style={styles.recipeMeta}>
+                    <Chip
+                      icon="clock-outline"
+                      style={styles.metaChip}
+                      textStyle={styles.metaChipText}
+                      compact
+                    >
+                      {recipe.prepTime}
+                    </Chip>
+                    <Chip
+                      icon="star-outline"
+                      style={[
+                        styles.metaChip,
+                        {
+                          backgroundColor:
+                            recipe.difficulty === "Easy"
+                              ? Colors.success
+                              : recipe.difficulty === "Medium"
+                              ? Colors.warning
+                              : Colors.error,
+                        },
+                      ]}
+                      textStyle={[styles.metaChipText, { color: Colors.white }]}
+                      compact
+                    >
+                      {recipe.difficulty}
+                    </Chip>
                   </View>
                 </View>
-              </View>
 
-              {/* Ingredients */}
-              <View style={styles.recipeSection}>
-                <Text style={CommonStyles.h4}>Ingredients</Text>
-                {recipe.ingredients.map((ingredient, idx) => (
-                  <Text key={idx} style={styles.listItem}>
-                    • {ingredient}
-                  </Text>
-                ))}
-              </View>
-
-              {/* Instructions */}
-              <View style={styles.recipeSection}>
-                <Text style={CommonStyles.h4}>Instructions</Text>
-                {recipe.instructions.map((step, idx) => (
-                  <View key={idx} style={styles.instructionStep}>
-                    <View style={styles.stepNumber}>
-                      <Text style={styles.stepNumberText}>{idx + 1}</Text>
+                {/* Nutrition Info */}
+                <View style={styles.nutritionCard}>
+                  <Text style={CommonStyles.h4}>Nutrition per serving</Text>
+                  <View style={styles.caloriesRow}>
+                    <Text style={styles.caloriesText}>
+                      {recipe.nutritionInfo.calories} calories
+                    </Text>
+                  </View>
+                  <View style={styles.macrosContainer}>
+                    <View style={styles.macroItem}>
+                      <Text style={styles.macroValue}>
+                        {recipe.nutritionInfo.carbsPercentage}%
+                      </Text>
+                      <Text style={styles.macroLabel}>Carbs</Text>
                     </View>
-                    <Text style={styles.stepText}>{step}</Text>
+                    <View style={styles.macroItem}>
+                      <Text style={styles.macroValue}>
+                        {recipe.nutritionInfo.proteinPercentage}%
+                      </Text>
+                      <Text style={styles.macroLabel}>Protein</Text>
+                    </View>
+                    <View style={styles.macroItem}>
+                      <Text style={styles.macroValue}>
+                        {recipe.nutritionInfo.fatPercentage}%
+                      </Text>
+                      <Text style={styles.macroLabel}>Fat</Text>
+                    </View>
                   </View>
-                ))}
-              </View>
-            </Card.Content>
-          </Card>
-        ))}
+                </View>
 
-        {/* Bottom padding for safe area */}
-        <View style={{ height: SafeArea.bottom + Spacing.xl }} />
-      </ScrollView>
-    </SafeAreaView>
+                {/* Ingredients */}
+                <View style={styles.recipeSection}>
+                  <Text style={CommonStyles.h4}>Ingredients</Text>
+                  {recipe.ingredients.map((ingredient, idx) => (
+                    <Text key={idx} style={styles.listItem}>
+                      • {ingredient}
+                    </Text>
+                  ))}
+                </View>
+
+                {/* Instructions */}
+                <View style={styles.recipeSection}>
+                  <Text style={CommonStyles.h4}>Instructions</Text>
+                  {recipe.instructions.map((step, idx) => (
+                    <View key={idx} style={styles.instructionStep}>
+                      <View style={styles.stepNumber}>
+                        <Text style={styles.stepNumberText}>{idx + 1}</Text>
+                      </View>
+                      <Text style={styles.stepText}>{step}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Card.Content>
+            </Card>
+          ))}
+
+          {/* Bottom padding for safe area */}
+          <View style={{ height: SafeArea.bottom + Spacing.xl }} />
+        </ScrollView>
+      </SafeAreaView>
+    </AppLayout>
   );
 }
 
