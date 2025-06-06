@@ -1,320 +1,559 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { get, ref, remove, set } from "firebase/database";
-import React, { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { signOut } from "firebase/auth";
+import { useEffect, useRef, useState } from "react";
 import {
-  Button,
-  Card,
-  Dialog,
-  Portal,
-  Surface,
-  Text,
-  useTheme,
-} from "react-native-paper";
-import { auth, database } from "../firebaseConfig";
+  Alert,
+  Animated,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Button, Card, Divider, Switch, Text } from "react-native-paper";
+import AppLayout from "../components/AppLayout";
+import { Colors, SafeArea, Shadows, Spacing } from "../constants/designSystem";
+import { auth } from "../firebaseConfig";
 
-// Default notification preferences
-const DEFAULT_NOTIFICATION_PREFS = {
-  enabled: true,
-  expiringSoon: 7, // days before expiry
-  dayBefore: true,
-  dayOf: true,
-  expired: true,
-};
-
-// Default app preferences
-const DEFAULT_APP_PREFS = {
-  theme: "auto",
-  haptics: true,
-  defaultExpiryReminder: 7,
-  autoBackup: false,
-  analytics: true,
-};
+interface SettingItem {
+  icon: string;
+  title: string;
+  subtitle?: string;
+  type: "switch" | "action" | "navigation";
+  value?: boolean;
+  onPress?: () => void;
+  color?: string;
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const theme = useTheme();
-  const currentUser = auth.currentUser;
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [autoBackup, setAutoBackup] = useState(false);
 
-  // State for notification preferences
-  const [notificationPrefs, setNotificationPrefs] = useState(
-    DEFAULT_NOTIFICATION_PREFS
-  );
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
-  // State for app preferences
-  const [appPrefs, setAppPrefs] = useState(DEFAULT_APP_PREFS);
-
-  // State for data management
-  const [totalItems, setTotalItems] = useState(0);
-  const [expiredItems, setExpiredItems] = useState(0);
-
-  // Dialog states
-  const [clearDataDialog, setClearDataDialog] = useState(false);
-  const [deleteExpiredDialog, setDeleteExpiredDialog] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  // Accordion state
-  const [reminderSettingsExpanded, setReminderSettingsExpanded] =
-    useState(true);
-
-  // Load settings on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        // Load notification preferences
-        const notificationPrefs = await AsyncStorage.getItem(
-          "notificationPrefs"
-        );
-        if (notificationPrefs) {
-          setNotificationPrefs(JSON.parse(notificationPrefs));
-        } else {
-          setNotificationPrefs(DEFAULT_NOTIFICATION_PREFS);
-        }
-
-        // Load app preferences
-        const appPrefs = await AsyncStorage.getItem("appPrefs");
-        if (appPrefs) {
-          setAppPrefs(JSON.parse(appPrefs));
-        } else {
-          setAppPrefs(DEFAULT_APP_PREFS);
-        }
-      } catch (error) {
-        console.error("Error loading settings:", error);
-        Alert.alert("Error", "Failed to load settings. Please try again.");
-      }
-    };
-
-    loadSettings();
+    // Start animations on mount
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
-  const fetchDataStats = async () => {
-    if (!currentUser?.email) return;
-
-    try {
-      const productsRef = ref(database, `users/${currentUser.email}/products`);
-      const snapshot = await get(productsRef);
-
-      if (snapshot.exists()) {
-        const products = snapshot.val();
-        const totalItems = Object.keys(products).length;
-        const today = new Date().toISOString().split("T")[0];
-        let expiredItems = 0;
-
-        Object.values(products).forEach((product: any) => {
-          if (product.expiryDate && product.expiryDate < today) {
-            expiredItems++;
+  const handleSignOut = async () => {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOut(auth);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.replace("/auth/login");
+          } catch (error) {
+            console.error("Error signing out:", error);
+            Alert.alert("Error", "Failed to sign out. Please try again.");
           }
-        });
-
-        setTotalItems(totalItems);
-        setExpiredItems(expiredItems);
-      }
-    } catch (error) {
-      console.error("Error fetching data stats:", error);
-      Alert.alert("Error", "Failed to load data statistics.");
-    }
+        },
+      },
+    ]);
   };
 
-  const handleClearAllData = async () => {
-    if (!currentUser?.email) {
-      Alert.alert("Error", "You must be logged in to clear data");
-      return;
-    }
-
-    try {
-      const productsRef = ref(database, `users/${currentUser.email}/products`);
-      await remove(productsRef);
-      await AsyncStorage.clear();
-      Alert.alert("Success", "All data has been cleared successfully!");
-      fetchDataStats();
-    } catch (error) {
-      console.error("Error clearing data:", error);
-      Alert.alert("Error", "Failed to clear data. Please try again.");
-    }
+  const handleExportData = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      "Export Data",
+      "This feature will export your food data to a CSV file.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Export", onPress: () => console.log("Export data") },
+      ]
+    );
   };
 
-  const handleDeleteExpired = async () => {
-    if (!currentUser?.email) {
-      Alert.alert("Error", "You must be logged in to delete expired items");
-      return;
-    }
-
-    try {
-      const productsRef = ref(database, `users/${currentUser.email}/products`);
-      const snapshot = await get(productsRef);
-      const today = new Date().toISOString().split("T")[0];
-      const batch: { [key: string]: null } = {};
-
-      if (snapshot.exists()) {
-        const products = snapshot.val();
-        Object.entries(products).forEach(([key, product]: [string, any]) => {
-          if (product.expiryDate && product.expiryDate < today) {
-            batch[key] = null;
-          }
-        });
-
-        if (Object.keys(batch).length > 0) {
-          await set(productsRef, batch);
-          Alert.alert(
-            "Success",
-            "Expired items have been deleted successfully!"
-          );
-          fetchDataStats();
-        } else {
-          Alert.alert("Info", "No expired items found.");
-        }
-      }
-    } catch (error) {
-      console.error("Error deleting expired items:", error);
-      Alert.alert("Error", "Failed to delete expired items. Please try again.");
-    }
+  const handleImportData = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      "Import Data",
+      "This feature will import food data from a CSV file.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Import", onPress: () => console.log("Import data") },
+      ]
+    );
   };
 
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-      router.replace("/auth/login");
-    } catch (error) {
-      console.error("Error logging out:", error);
-      Alert.alert("Error", "Failed to log out. Please try again.");
-    }
+  const handleBackupData = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      "Backup Data",
+      "Your data is automatically backed up to Firebase. This will create an additional local backup.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Create Backup", onPress: () => console.log("Backup data") },
+      ]
+    );
   };
 
-  return (
-    <ScrollView style={styles.container}>
-      <Surface style={styles.header}>
-        <MaterialCommunityIcons
-          name="cog"
-          size={24}
-          color={theme.colors.primary}
-        />
-        <Text variant="headlineMedium" style={styles.headerText}>
-          Settings
-        </Text>
-      </Surface>
+  const settingSections = [
+    {
+      title: "Notifications",
+      items: [
+        {
+          icon: "bell",
+          title: "Push Notifications",
+          subtitle: "Get notified about expiring items",
+          type: "switch" as const,
+          value: notificationsEnabled,
+          onPress: () => {
+            setNotificationsEnabled(!notificationsEnabled);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          },
+        },
+        {
+          icon: "volume-high",
+          title: "Sound",
+          subtitle: "Play sound with notifications",
+          type: "switch" as const,
+          value: soundEnabled,
+          onPress: () => {
+            setSoundEnabled(!soundEnabled);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          },
+        },
+      ],
+    },
+    {
+      title: "Data Management",
+      items: [
+        {
+          icon: "backup-restore",
+          title: "Auto Backup",
+          subtitle: "Automatically backup data weekly",
+          type: "switch" as const,
+          value: autoBackup,
+          onPress: () => {
+            setAutoBackup(!autoBackup);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          },
+        },
+        {
+          icon: "cloud-upload",
+          title: "Create Backup",
+          subtitle: "Manually backup your data",
+          type: "action" as const,
+          onPress: handleBackupData,
+        },
+        {
+          icon: "export",
+          title: "Export Data",
+          subtitle: "Export to CSV file",
+          type: "action" as const,
+          onPress: handleExportData,
+        },
+        {
+          icon: "import",
+          title: "Import Data",
+          subtitle: "Import from CSV file",
+          type: "action" as const,
+          onPress: handleImportData,
+        },
+      ],
+    },
+    {
+      title: "App Information",
+      items: [
+        {
+          icon: "information",
+          title: "About",
+          subtitle: "App version and information",
+          type: "navigation" as const,
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Alert.alert(
+              "Food Expiry Tracker",
+              "Version 1.0.0\n\nTrack your food expiration dates with barcode scanning and smart notifications.",
+              [{ text: "OK" }]
+            );
+          },
+        },
+        {
+          icon: "help-circle",
+          title: "Help & Support",
+          subtitle: "Get help using the app",
+          type: "navigation" as const,
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Alert.alert(
+              "Help & Support",
+              "For support, please contact:\nsupport@foodtracker.app",
+              [{ text: "OK" }]
+            );
+          },
+        },
+      ],
+    },
+  ];
 
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleLarge">Data Management</Text>
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text variant="headlineMedium">{totalItems}</Text>
-              <Text variant="bodyMedium">Total Items</Text>
+  const renderSettingItem = (item: SettingItem, index: number) => {
+    const animatedValue = new Animated.Value(0);
+
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration: 300,
+      delay: index * 50,
+      useNativeDriver: true,
+    }).start();
+
+    return (
+      <Animated.View
+        key={item.title}
+        style={[
+          {
+            opacity: animatedValue,
+            transform: [
+              {
+                translateX: animatedValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [30, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={item.onPress}
+          activeOpacity={0.7}
+          disabled={item.type === "switch"}
+        >
+          <View style={styles.settingContent}>
+            <View style={styles.settingLeft}>
+              <View
+                style={[
+                  styles.iconContainer,
+                  {
+                    backgroundColor: item.color
+                      ? `${item.color}20`
+                      : Colors.primary50,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={item.icon as any}
+                  size={22}
+                  color={item.color || Colors.primary500}
+                />
+              </View>
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>{item.title}</Text>
+                {item.subtitle && (
+                  <Text style={styles.settingSubtitle}>{item.subtitle}</Text>
+                )}
+              </View>
             </View>
-            <View style={styles.statItem}>
-              <Text variant="headlineMedium">{expiredItems}</Text>
-              <Text variant="bodyMedium">Expired Items</Text>
+
+            <View style={styles.settingRight}>
+              {item.type === "switch" && (
+                <Switch
+                  value={item.value}
+                  onValueChange={item.onPress}
+                  trackColor={{
+                    false: Colors.gray300,
+                    true: Colors.primary200,
+                  }}
+                  thumbColor={item.value ? Colors.primary500 : Colors.gray500}
+                />
+              )}
+              {item.type === "navigation" && (
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={20}
+                  color={Colors.gray400}
+                />
+              )}
             </View>
           </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
+  const renderSection = (section: any, sectionIndex: number) => (
+    <Animated.View
+      key={section.title}
+      style={[
+        styles.section,
+        {
+          opacity: fadeAnim,
+          transform: [
+            {
+              translateY: slideAnim.interpolate({
+                inputRange: [0, 30],
+                outputRange: [0, 30],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <Text style={styles.sectionTitle}>{section.title}</Text>
+      <Card style={styles.sectionCard}>
+        {section.items.map((item: SettingItem, index: number) => (
+          <View key={item.title}>
+            {renderSettingItem(item, sectionIndex * 10 + index)}
+            {index < section.items.length - 1 && (
+              <Divider style={styles.divider} />
+            )}
+          </View>
+        ))}
+      </Card>
+    </Animated.View>
+  );
+
+  return (
+    <AppLayout>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
+          <Text style={styles.headerTitle}>Settings</Text>
+          <Text style={styles.headerSubtitle}>Customize your experience</Text>
+        </Animated.View>
+
+        {/* User Info */}
+        <Animated.View
+          style={[
+            styles.userSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: fadeAnim }],
+            },
+          ]}
+        >
+          <Card style={styles.userCard}>
+            <Card.Content style={styles.userContent}>
+              <View style={styles.userAvatar}>
+                <MaterialCommunityIcons
+                  name="account-circle"
+                  size={60}
+                  color={Colors.primary500}
+                />
+              </View>
+              <View style={styles.userInfo}>
+                <Text style={styles.userEmail}>
+                  {auth.currentUser?.email || "User"}
+                </Text>
+                <Text style={styles.userStatus}>Account Active</Text>
+              </View>
+            </Card.Content>
+          </Card>
+        </Animated.View>
+
+        {/* Settings Sections */}
+        {settingSections.map(renderSection)}
+
+        {/* Sign Out Section */}
+        <Animated.View
+          style={[
+            styles.signOutSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
           <Button
             mode="contained"
-            onPress={() => setDeleteExpiredDialog(true)}
-            style={styles.button}
+            onPress={handleSignOut}
+            style={styles.signOutButton}
+            contentStyle={styles.signOutButtonContent}
+            labelStyle={styles.signOutButtonText}
+            icon="logout"
+            buttonColor={Colors.error}
           >
-            Delete Expired Items
+            Sign Out
           </Button>
-          <Button
-            mode="outlined"
-            onPress={() => setClearDataDialog(true)}
-            style={styles.button}
-          >
-            Clear All Data
-          </Button>
-        </Card.Content>
-      </Card>
+        </Animated.View>
 
-      <Portal>
-        <Dialog
-          visible={clearDataDialog}
-          onDismiss={() => setClearDataDialog(false)}
-        >
-          <Dialog.Title>Clear All Data</Dialog.Title>
-          <Dialog.Content>
-            <Text>
-              Are you sure you want to clear all your data? This action cannot
-              be undone.
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setClearDataDialog(false)}>Cancel</Button>
-            <Button onPress={handleClearAllData}>Clear</Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        <Dialog
-          visible={deleteExpiredDialog}
-          onDismiss={() => setDeleteExpiredDialog(false)}
-        >
-          <Dialog.Title>Delete Expired Items</Dialog.Title>
-          <Dialog.Content>
-            <Text>
-              Are you sure you want to delete all expired items? This action
-              cannot be undone.
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDeleteExpiredDialog(false)}>
-              Cancel
-            </Button>
-            <Button onPress={handleDeleteExpired}>Delete</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium">Account</Text>
-          <Button mode="outlined" onPress={handleLogout} style={styles.button}>
-            Logout
-          </Button>
-        </Card.Content>
-      </Card>
-    </ScrollView>
+        {/* Bottom Spacing */}
+        <View style={{ height: 120 }} />
+      </ScrollView>
+    </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 16,
-    paddingBottom: 16,
+    backgroundColor: Colors.background,
   },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    marginBottom: 8,
-  },
-  card: {
-    marginBottom: 16,
-  },
-  button: {
-    marginTop: 16,
-  },
-  logoutButton: {
-    marginTop: 24,
-  },
+
   header: {
-    padding: 16,
+    paddingTop: SafeArea.top + Spacing.lg,
+    paddingHorizontal: SafeArea.horizontal,
+    paddingBottom: Spacing.lg,
+  },
+
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: Colors.gray900,
+    marginBottom: Spacing.xs,
+  },
+
+  headerSubtitle: {
+    fontSize: 16,
+    color: Colors.gray600,
+  },
+
+  userSection: {
+    paddingHorizontal: SafeArea.horizontal,
+    marginBottom: Spacing.xl,
+  },
+
+  userCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    ...Shadows.md,
+  },
+
+  userContent: {
     flexDirection: "row",
     alignItems: "center",
-    elevation: 4,
+    padding: Spacing.lg,
   },
-  headerText: {
-    marginLeft: 16,
+
+  userAvatar: {
+    marginRight: Spacing.lg,
   },
-  statsContainer: {
+
+  userInfo: {
+    flex: 1,
+  },
+
+  userEmail: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.gray900,
+    marginBottom: Spacing.xs,
+  },
+
+  userStatus: {
+    fontSize: 14,
+    color: Colors.success,
+    fontWeight: "500",
+  },
+
+  section: {
+    paddingHorizontal: SafeArea.horizontal,
+    marginBottom: Spacing.xl,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.gray900,
+    marginBottom: Spacing.md,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  sectionCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    overflow: "hidden",
+    ...Shadows.sm,
+  },
+
+  settingItem: {
+    backgroundColor: Colors.surface,
+  },
+
+  settingContent: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginVertical: 16,
-  },
-  statItem: {
     alignItems: "center",
+    justifyContent: "space-between",
+    padding: Spacing.lg,
+  },
+
+  settingLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+
+  settingText: {
+    flex: 1,
+  },
+
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: Colors.gray900,
+    marginBottom: 2,
+  },
+
+  settingSubtitle: {
+    fontSize: 13,
+    color: Colors.gray600,
+  },
+
+  settingRight: {
+    marginLeft: Spacing.md,
+  },
+
+  divider: {
+    marginLeft: Spacing.lg + 40 + Spacing.md, // Align with text
+    backgroundColor: Colors.gray200,
+  },
+
+  signOutSection: {
+    paddingHorizontal: SafeArea.horizontal,
+    marginBottom: Spacing.xl,
+  },
+
+  signOutButton: {
+    borderRadius: 12,
+    ...Shadows.sm,
+  },
+
+  signOutButtonContent: {
+    height: 48,
+  },
+
+  signOutButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

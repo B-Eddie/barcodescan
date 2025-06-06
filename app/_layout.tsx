@@ -4,6 +4,7 @@ import React, { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { PaperProvider, useTheme } from "react-native-paper";
+import { lightTheme } from "../constants/designSystem";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 
 // Keep the splash screen visible while we fetch resources
@@ -50,25 +51,13 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <PaperProvider>
+      <PaperProvider theme={lightTheme}>
         <AuthProvider>
           <AuthCheck>
             <Tabs
               screenOptions={{
                 headerShown: false,
-                tabBarStyle: {
-                  height: 60,
-                  paddingBottom: 8,
-                  paddingTop: 8,
-                  backgroundColor: theme.colors.background,
-                  borderTopColor: theme.colors.outline,
-                },
-                tabBarActiveTintColor: theme.colors.primary,
-                tabBarInactiveTintColor: theme.colors.outline,
-                headerStyle: {
-                  backgroundColor: theme.colors.background,
-                },
-                headerTintColor: theme.colors.onBackground,
+                tabBarStyle: { display: "none" }, // Hide default tab bar
               }}
             >
               <Tabs.Screen
@@ -111,19 +100,6 @@ export default function RootLayout() {
                 }}
               />
               <Tabs.Screen
-                name="profile"
-                options={{
-                  title: "Profile",
-                  tabBarIcon: ({ color, size }) => (
-                    <MaterialCommunityIcons
-                      name="account"
-                      size={size}
-                      color={color}
-                    />
-                  ),
-                }}
-              />
-              <Tabs.Screen
                 name="calendar"
                 options={{
                   title: "Calendar",
@@ -152,6 +128,12 @@ export default function RootLayout() {
               {/* Hide these screens from the tab bar but keep them accessible */}
               <Tabs.Screen
                 name="auth"
+                options={{
+                  href: null,
+                }}
+              />
+              <Tabs.Screen
+                name="profile"
                 options={{
                   href: null,
                 }}

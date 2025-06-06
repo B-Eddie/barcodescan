@@ -67,7 +67,8 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to add images to your food items."
         }
-      ]
+      ],
+      "expo-barcode-scanner"
     ],
     "extra": {
       "eas": {

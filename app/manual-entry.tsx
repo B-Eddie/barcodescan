@@ -88,78 +88,80 @@ export default function ManualEntryScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Card style={styles.card}>
-        <Card.Content>
-          <TextInput
-            label="Product Name"
-            value={name}
-            onChangeText={setName}
-            style={styles.input}
-            mode="outlined"
-          />
-
-          <TextInput
-            label="Quantity"
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="numeric"
-            style={styles.input}
-            mode="outlined"
-          />
-
-          <View style={styles.dateContainer}>
-            <Text variant="bodyLarge" style={styles.label}>
-              Expiry Date
-            </Text>
-            <Button
+    <AppLayout>
+      <ScrollView style={styles.container}>
+        <Card style={styles.card}>
+          <Card.Content>
+            <TextInput
+              label="Product Name"
+              value={name}
+              onChangeText={setName}
+              style={styles.input}
               mode="outlined"
-              onPress={() => setShowDatePicker(true)}
-              style={styles.dateButton}
-            >
-              {expiryDate.toLocaleDateString()}
-            </Button>
-            {showDatePicker && (
-              <DateTimePicker
-                value={expiryDate}
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onChange={handleDateChange}
-                minimumDate={new Date()}
-              />
-            )}
-          </View>
+            />
 
-          <View style={styles.categoryContainer}>
-            <Text variant="bodyLarge" style={styles.label}>
-              Category
-            </Text>
-            <View style={styles.chipContainer}>
-              {categories.map((cat) => (
-                <Chip
-                  key={cat}
-                  selected={category === cat}
-                  onPress={() => setCategory(cat)}
-                  style={styles.chip}
-                >
-                  {cat}
-                </Chip>
-              ))}
+            <TextInput
+              label="Quantity"
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="numeric"
+              style={styles.input}
+              mode="outlined"
+            />
+
+            <View style={styles.dateContainer}>
+              <Text variant="bodyLarge" style={styles.label}>
+                Expiry Date
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={() => setShowDatePicker(true)}
+                style={styles.dateButton}
+              >
+                {expiryDate.toLocaleDateString()}
+              </Button>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={expiryDate}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={handleDateChange}
+                  minimumDate={new Date()}
+                />
+              )}
             </View>
-          </View>
-        </Card.Content>
-      </Card>
 
-      <Button
-        mode="contained"
-        onPress={handleSave}
-        loading={isSaving}
-        disabled={isSaving}
-        style={styles.saveButton}
-      >
-        Save Product
-      </Button>
-    </ScrollView>
+            <View style={styles.categoryContainer}>
+              <Text variant="bodyLarge" style={styles.label}>
+                Category
+              </Text>
+              <View style={styles.chipContainer}>
+                {categories.map((cat) => (
+                  <Chip
+                    key={cat}
+                    selected={category === cat}
+                    onPress={() => setCategory(cat)}
+                    style={styles.chip}
+                  >
+                    {cat}
+                  </Chip>
+                ))}
+              </View>
+            </View>
+          </Card.Content>
+        </Card>
+
+        <Button
+          mode="contained"
+          onPress={handleSave}
+          loading={isSaving}
+          disabled={isSaving}
+          style={styles.saveButton}
+        >
+          Save Product
+        </Button>
+      </ScrollView>
+    </AppLayout>
   );
 }
 

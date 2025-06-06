@@ -212,35 +212,76 @@ export default function ProductScreen() {
     }
   };
 
-  const predictExpiry = (name: string) => {
-    // Simple prediction logic - in a real app this would be more sophisticated
-    const nameLower = name.toLowerCase();
+  const predictExpiry = async (name: string) => {
+    try {
+      // Import and use the advanced calculator
+      const { AdvancedExpiryCalculator } = await import(
+        "../services/advancedExpiryCalculator"
+      );
+      const result = await AdvancedExpiryCalculator.calculateExpiry(name);
 
-    // Try to find a match in our expiry estimates
-    const matchedCategory =
-      Object.keys(FOOD_EXPIRY_ESTIMATES).find((key) =>
-        nameLower.includes(key)
-      ) || "default";
+      console.log(
+        `Advanced prediction for "${name}": ${result.shelfLifeDays} days via ${result.method}`
+      );
 
-    setSelectedCategory(matchedCategory);
+      setSelectedCategory(result.category);
 
-    // Set predicted expiry date
-    const predictedDays = FOOD_EXPIRY_ESTIMATES[matchedCategory];
-    const newDate = new Date();
-    newDate.setDate(newDate.getDate() + predictedDays);
-    setExpiryDateState(newDate);
+      // Set predicted expiry date
+      const newDate = new Date();
+      newDate.setDate(newDate.getDate() + result.shelfLifeDays);
+      setExpiryDateState(newDate);
 
-    // Set productData for new product
-    setProductData({
-      name: name,
-      expiryDate: newDate.toISOString(),
-      category: matchedCategory,
-      quantity: parseInt(quantity) || 1,
-      imageUrl: image,
-      brand: brand,
-      nutritionInfo: nutritionData,
-      ingredients: ingredientsList,
-    });
+      // Set productData for new product
+      setProductData({
+        name: name,
+        expiryDate: newDate.toISOString(),
+        category: result.category,
+        quantity: parseInt(quantity) || 1,
+        imageUrl: image || undefined,
+        brand: Array.isArray(brand) ? brand[0] : brand || undefined,
+        nutritionInfo: nutritionData,
+        ingredients: Array.isArray(ingredientsList)
+          ? ingredientsList
+          : ingredientsList
+          ? [ingredientsList]
+          : undefined,
+      });
+    } catch (error) {
+      console.error("Advanced prediction failed, using fallback:", error);
+
+      // Fallback to simple prediction logic
+      const nameLower = name.toLowerCase();
+
+      // Try to find a match in our expiry estimates
+      const matchedCategory =
+        Object.keys(FOOD_EXPIRY_ESTIMATES).find((key) =>
+          nameLower.includes(key)
+        ) || "default";
+
+      setSelectedCategory(matchedCategory);
+
+      // Set predicted expiry date
+      const predictedDays = FOOD_EXPIRY_ESTIMATES[matchedCategory];
+      const newDate = new Date();
+      newDate.setDate(newDate.getDate() + predictedDays);
+      setExpiryDateState(newDate);
+
+      // Set productData for new product
+      setProductData({
+        name: name,
+        expiryDate: newDate.toISOString(),
+        category: matchedCategory,
+        quantity: parseInt(quantity) || 1,
+        imageUrl: image || undefined,
+        brand: Array.isArray(brand) ? brand[0] : brand || undefined,
+        nutritionInfo: nutritionData,
+        ingredients: Array.isArray(ingredientsList)
+          ? ingredientsList
+          : ingredientsList
+          ? [ingredientsList]
+          : undefined,
+      });
+    }
   };
 
   const pickImage = async () => {

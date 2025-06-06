@@ -1,766 +1,746 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { get, ref } from "firebase/database";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { Animated, Dimensions, FlatList, StyleSheet, View } from "react-native";
+import Calendar from "react-native-calendars/src/calendar";
+import { ActivityIndicator, Card, Chip, Text } from "react-native-paper";
+import AppLayout from "../components/AppLayout";
 import {
-  Alert,
-  Animated,
-  Dimensions,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { Calendar as RNCalendar } from "react-native-calendars";
-import {
-  ActivityIndicator,
-  Card,
-  Chip,
-  IconButton,
-  Surface,
-  Text,
-  useTheme,
-} from "react-native-paper";
+  Colors,
+  CommonStyles,
+  SafeArea,
+  Shadows,
+  Spacing,
+} from "../constants/designSystem";
 import { auth, database } from "../firebaseConfig";
 
-interface ExpiryDate {
+const { width, height } = Dimensions.get("window");
+
+interface FoodItem {
   id: string;
   name: string;
-  date: string;
+  purchaseDate: string;
+  estimatedExpiryDate: string;
+  confidence: number;
+  category: string;
+  quantity: number;
   daysUntilExpiry: number;
-  imageUrl?: string;
-  category?: string;
-  quantity?: number;
+  status: "fresh" | "expiring_soon" | "expired";
+}
+
+interface MarkedDates {
+  [key: string]: {
+    dots?: Array<{ key: string; color: string }>;
+    marked?: boolean;
+    selectedDotColor?: string;
+    selected?: boolean;
+    selectedColor?: string;
+  };
 }
 
 export default function CalendarScreen() {
-  const router = useRouter();
-  const theme = useTheme();
-  const [expiryDates, setExpiryDates] = useState<ExpiryDate[]>([]);
-  const [markedDates, setMarkedDates] = useState({});
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [slideAnim] = useState(new Animated.Value(50));
-  const [scaleAnim] = useState(new Animated.Value(0.95));
-  const { width, height } = Dimensions.get("window");
+  const [markedDates, setMarkedDates] = useState<MarkedDates>({});
+  const [itemsForSelectedDate, setItemsForSelectedDate] = useState<FoodItem[]>(
+    []
+  );
 
-  // Cache keys
-  const CACHE_KEY = "calendar_dates_cache";
-  const CACHE_TIMESTAMP_KEY = "calendar_dates_cache_timestamp";
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideUpAnim = useRef(new Animated.Value(50)).current;
+  const calendarScale = useRef(new Animated.Value(0.95)).current;
 
-  const fetchExpiryDates = async (isRefreshing = false) => {
+  useFocusEffect(
+    useCallback(() => {
+      loadFoodItems();
+    }, [])
+  );
+
+  const loadFoodItems = async () => {
     try {
-      if (isRefreshing) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
+      setLoading(true);
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
         setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      // Check cache first
-      const cachedData = await AsyncStorage.getItem(CACHE_KEY);
-      const cacheTimestamp = await AsyncStorage.getItem(CACHE_TIMESTAMP_KEY);
-      const now = Date.now();
-
-      if (
-        cachedData &&
-        cacheTimestamp &&
-        now - parseInt(cacheTimestamp) < CACHE_DURATION &&
-        !isRefreshing
-      ) {
-        const dates = JSON.parse(cachedData);
-        setExpiryDates(dates);
-        updateMarkedDates(dates);
-        animateIn();
         return;
       }
 
       const encodedEmail = encodeURIComponent(
         currentUser.email.replace(/\./g, ",")
       );
-
       const productsRef = ref(database, `users/${encodedEmail}/products`);
       const snapshot = await get(productsRef);
 
-      const dates: ExpiryDate[] = [];
+      const foodItemsList: FoodItem[] = [];
       if (snapshot.exists()) {
         snapshot.forEach((childSnapshot) => {
           const data = childSnapshot.val();
-          if (data && data.expiryDate) {
-            const daysUntilExpiry = Math.ceil(
-              (new Date(data.expiryDate).getTime() - new Date().getTime()) /
-                (1000 * 60 * 60 * 24)
-            );
-            dates.push({
-              id: childSnapshot.key || "",
-              name: data.name,
-              date: data.expiryDate,
-              daysUntilExpiry,
-              imageUrl: data.imageUrl,
-              category: data.category,
-              quantity: data.quantity,
-            });
+          const daysUntilExpiry = Math.ceil(
+            (new Date(data.expiryDate).getTime() - new Date().getTime()) /
+              (1000 * 60 * 60 * 24)
+          );
+
+          let status: "fresh" | "expiring_soon" | "expired";
+          if (daysUntilExpiry < 0) {
+            status = "expired";
+          } else if (daysUntilExpiry <= 3) {
+            status = "expiring_soon";
+          } else {
+            status = "fresh";
           }
+
+          foodItemsList.push({
+            id: childSnapshot.key || "",
+            name: data.name,
+            purchaseDate: data.purchaseDate,
+            estimatedExpiryDate: data.expiryDate,
+            confidence: data.confidence,
+            category: data.category,
+            quantity: data.quantity,
+            daysUntilExpiry,
+            status,
+          });
         });
       }
 
-      dates.sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
+      setFoodItems(foodItemsList);
+      createMarkedDates(foodItemsList);
+      updateItemsForDate(selectedDate, foodItemsList);
 
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(dates));
-      await AsyncStorage.setItem(CACHE_TIMESTAMP_KEY, now.toString());
-
-      setExpiryDates(dates);
-      updateMarkedDates(dates);
-
-      if (!isRefreshing) {
-        animateIn();
-      }
+      // Start animations
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideUpAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.spring(calendarScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }),
+      ]).start();
     } catch (error) {
-      console.error("Error fetching expiry dates:", error);
-      Alert.alert("Error", "Failed to load expiry dates. Please try again.");
+      console.error("Error loading food items:", error);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const animateIn = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
+  const createMarkedDates = (items: FoodItem[]) => {
+    const marked: MarkedDates = {};
+
+    // Group items by expiry date
+    const itemsByDate = items.reduce((acc, item) => {
+      const date = item.estimatedExpiryDate;
+      if (!acc[date]) {
+        acc[date] = [];
+      }
+      acc[date].push(item);
+      return acc;
+    }, {} as Record<string, FoodItem[]>);
+
+    // Create marked dates with dots
+    Object.keys(itemsByDate).forEach((date) => {
+      const dateItems = itemsByDate[date];
+      const dots = [];
+
+      // Count items by status
+      const freshCount = dateItems.filter(
+        (item) => item.status === "fresh"
+      ).length;
+      const expiringSoonCount = dateItems.filter(
+        (item) => item.status === "expiring_soon"
+      ).length;
+      const expiredCount = dateItems.filter(
+        (item) => item.status === "expired"
+      ).length;
+
+      // Add dots based on status (max 3 dots)
+      if (freshCount > 0) {
+        dots.push({ key: "fresh", color: Colors.success });
+      }
+      if (expiringSoonCount > 0) {
+        dots.push({ key: "expiring", color: Colors.warning });
+      }
+      if (expiredCount > 0) {
+        dots.push({ key: "expired", color: Colors.error });
+      }
+
+      marked[date] = {
+        dots: dots.slice(0, 3), // Maximum 3 dots
+        marked: true,
+      };
+    });
+
+    // Mark selected date
+    marked[selectedDate] = {
+      ...marked[selectedDate],
+      selected: true,
+      selectedColor: Colors.primary500,
+    };
+
+    setMarkedDates(marked);
+  };
+
+  const updateItemsForDate = (date: string, items: FoodItem[] = foodItems) => {
+    const itemsForDate = items.filter(
+      (item) => item.estimatedExpiryDate === date
+    );
+    setItemsForSelectedDate(itemsForDate);
+  };
+
+  const handleDatePress = (day: any) => {
+    const date = day.dateString;
+    setSelectedDate(date);
+    updateItemsForDate(date);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Update marked dates to show new selection
+    const newMarkedDates = { ...markedDates };
+
+    // Remove previous selection
+    Object.keys(newMarkedDates).forEach((key) => {
+      if (newMarkedDates[key].selected) {
+        delete newMarkedDates[key].selected;
+        delete newMarkedDates[key].selectedColor;
+      }
+    });
+
+    // Add new selection
+    newMarkedDates[date] = {
+      ...newMarkedDates[date],
+      selected: true,
+      selectedColor: Colors.primary500,
+    };
+
+    setMarkedDates(newMarkedDates);
+
+    // Animate items update
+    Animated.sequence([
+      Animated.timing(slideUpAnim, {
+        toValue: 20,
+        duration: 150,
         useNativeDriver: true,
       }),
-      Animated.timing(slideAnim, {
+      Animated.timing(slideUpAnim, {
         toValue: 0,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 500,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start();
   };
 
-  const updateMarkedDates = (dates: ExpiryDate[]) => {
-    const marked: any = {};
-    const today = new Date().toISOString().split("T")[0];
-
-    // Mark today
-    marked[today] = {
-      selected: true,
-      selectedColor: theme.colors.primary,
-      selectedTextColor: "#fff",
-    };
-
-    dates.forEach((date) => {
-      const color = getExpiryColor(date.daysUntilExpiry);
-      marked[date.date] = {
-        marked: true,
-        dotColor: color,
-        selectedColor: date.date === selectedDate ? color : undefined,
-        selected: date.date === selectedDate,
-        selectedTextColor: date.date === selectedDate ? "#fff" : undefined,
-      };
-    });
-
-    setMarkedDates(marked);
-  };
-
-  const getExpiryColor = (days: number) => {
-    if (days < 0) return "#FF5252"; // Red for expired
-    if (days <= 3) return "#FF7043"; // Orange-red for critical
-    if (days <= 7) return "#FFB74D"; // Orange for warning
-    if (days <= 14) return "#FFF176"; // Yellow for caution
-    return "#81C784"; // Green for safe
-  };
-
-  const getExpiryStatus = (days: number) => {
-    if (days < 0) return "Expired";
-    if (days === 0) return "Expires Today";
-    if (days === 1) return "Expires Tomorrow";
-    return `${days} days left`;
-  };
-
-  const getCategoryIcon = (category?: string) => {
+  const getCategoryIcon = (category: string) => {
     const icons: Record<string, string> = {
       dairy: "cheese",
       meat: "food-steak",
-      fruits: "fruit-watermelon",
-      vegetables: "carrot",
+      produce: "fruit-watermelon",
       bakery: "bread-slice",
+      snacks: "cookie",
+      beverages: "cup",
       canned: "food-variant",
       frozen: "snowflake",
-      snacks: "cookie",
-      default: "food",
+      other: "food",
     };
-    return icons[category || "default"] || "food";
+    return icons[category] || icons.other;
   };
 
-  const getGradientColors = (days: number): [string, string] => {
-    if (days < 0) return ["#FF5252", "#D32F2F"];
-    if (days <= 3) return ["#FF7043", "#F4511E"];
-    if (days <= 7) return ["#FFB74D", "#FF9800"];
-    if (days <= 14) return ["#FFF176", "#FDD835"];
-    return ["#81C784", "#66BB6A"];
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "fresh":
+        return Colors.success;
+      case "expiring_soon":
+        return Colors.warning;
+      case "expired":
+        return Colors.error;
+      default:
+        return Colors.primary500;
+    }
   };
 
-  useEffect(() => {
-    fetchExpiryDates();
-  }, []);
-
-  const handleRefresh = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    fetchExpiryDates(true);
-  }, []);
-
-  const handleDateSelect = (day: any) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedDate(day.dateString);
-    updateMarkedDates(expiryDates);
+  const getStatusText = (status: string, daysUntilExpiry: number) => {
+    if (status === "expired") {
+      return `Expired ${Math.abs(daysUntilExpiry)} days ago`;
+    } else if (status === "expiring_soon") {
+      return daysUntilExpiry === 0
+        ? "Expires today"
+        : `Expires in ${daysUntilExpiry} days`;
+    } else {
+      return `Fresh for ${daysUntilExpiry} days`;
+    }
   };
 
-  const filteredDates = expiryDates.filter(
-    (date) => date.date === selectedDate
-  );
+  const renderFoodItem = ({
+    item,
+    index,
+  }: {
+    item: FoodItem;
+    index: number;
+  }) => {
+    const animatedValue = new Animated.Value(0);
 
-  const upcomingExpiries = expiryDates
-    .filter((date) => date.daysUntilExpiry >= 0 && date.daysUntilExpiry <= 7)
-    .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration: 300,
+      delay: index * 50,
+      useNativeDriver: true,
+    }).start();
 
-  const expiredItems = expiryDates.filter((date) => date.daysUntilExpiry < 0);
+    return (
+      <Animated.View
+        style={[
+          {
+            opacity: animatedValue,
+            transform: [
+              {
+                translateY: animatedValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Card style={styles.itemCard}>
+          <Card.Content style={styles.itemContent}>
+            <View style={styles.itemHeader}>
+              <View style={styles.itemInfo}>
+                <View
+                  style={[
+                    styles.iconContainer,
+                    { backgroundColor: `${getStatusColor(item.status)}20` },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={getCategoryIcon(item.category) as any}
+                    size={20}
+                    color={getStatusColor(item.status)}
+                  />
+                </View>
+                <View style={styles.itemDetails}>
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.itemCategory}>
+                    {item.category} • Qty: {item.quantity}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.statusInfo}>
+                <Chip
+                  mode="flat"
+                  style={[
+                    styles.statusChip,
+                    { backgroundColor: `${getStatusColor(item.status)}20` },
+                  ]}
+                  textStyle={[
+                    styles.statusText,
+                    { color: getStatusColor(item.status) },
+                  ]}
+                >
+                  {item.status.replace("_", " ")}
+                </Chip>
+              </View>
+            </View>
+
+            <Text style={styles.statusDescription}>
+              {getStatusText(item.status, item.daysUntilExpiry)}
+            </Text>
+          </Card.Content>
+        </Card>
+      </Animated.View>
+    );
+  };
+
+  const formatSelectedDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (dateString === today.toISOString().split("T")[0]) {
+      return "Today";
+    } else if (dateString === tomorrow.toISOString().split("T")[0]) {
+      return "Tomorrow";
+    } else if (dateString === yesterday.toISOString().split("T")[0]) {
+      return "Yesterday";
+    } else {
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      });
+    }
+  };
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={["#667eea", "#764ba2"]}
-        style={styles.loadingContainer}
-      >
-        <View style={styles.loadingContent}>
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Loading your calendar...</Text>
+      <AppLayout>
+        <View style={[CommonStyles.container, CommonStyles.centerContent]}>
+          <ActivityIndicator size="large" color={Colors.primary500} />
+          <Text style={styles.loadingText}>Loading calendar...</Text>
         </View>
-      </LinearGradient>
+      </AppLayout>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={["#667eea", "#764ba2"]}
-        style={styles.headerGradient}
-      >
-        <Surface style={styles.headerSurface} elevation={0}>
-          <Text variant="headlineMedium" style={styles.headerTitle}>
-            Food Calendar
-          </Text>
-          <Text variant="bodyMedium" style={styles.headerSubtitle}>
-            Track your food expiration dates
-          </Text>
-        </Surface>
-      </LinearGradient>
-
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
+    <AppLayout>
+      <View style={styles.container}>
+        {/* Header */}
         <Animated.View
           style={[
-            styles.content,
+            styles.header,
             {
               opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
+              transform: [{ scale: calendarScale }],
             },
           ]}
         >
-          {/* Calendar Card */}
-          <Card style={styles.calendarCard} elevation={5}>
-            <Card.Content style={styles.calendarContent}>
-              <RNCalendar
-                onDayPress={handleDateSelect}
-                markedDates={markedDates}
-                theme={{
-                  backgroundColor: "transparent",
-                  calendarBackground: "transparent",
-                  textSectionTitleColor: theme.colors.primary,
-                  selectedDayBackgroundColor: theme.colors.primary,
-                  selectedDayTextColor: "#ffffff",
-                  todayTextColor: theme.colors.primary,
-                  dayTextColor: "#2d4150",
-                  textDisabledColor: "#d9e1e8",
-                  dotColor: theme.colors.primary,
-                  selectedDotColor: "#ffffff",
-                  arrowColor: theme.colors.primary,
-                  disabledArrowColor: "#d9e1e8",
-                  monthTextColor: theme.colors.primary,
-                  indicatorColor: theme.colors.primary,
-                  textDayFontFamily: "System",
-                  textMonthFontFamily: "System",
-                  textDayHeaderFontFamily: "System",
-                  textDayFontWeight: "500",
-                  textMonthFontWeight: "bold",
-                  textDayHeaderFontWeight: "600",
-                  textDayFontSize: 16,
-                  textMonthFontSize: 18,
-                  textDayHeaderFontSize: 14,
-                }}
-                style={styles.calendar}
-              />
-            </Card.Content>
+          <Text style={styles.headerTitle}>Expiry Calendar</Text>
+          <Text style={styles.headerSubtitle}>
+            Track when your items expire
+          </Text>
+        </Animated.View>
+
+        {/* Calendar Section */}
+        <Animated.View
+          style={[
+            styles.calendarSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: calendarScale }],
+            },
+          ]}
+        >
+          <Card style={styles.calendarCard}>
+            <Calendar
+              current={selectedDate}
+              onDayPress={handleDatePress}
+              markingType="multi-dot"
+              markedDates={markedDates}
+              theme={{
+                backgroundColor: Colors.surface,
+                calendarBackground: Colors.surface,
+                textSectionTitleColor: Colors.gray600,
+                selectedDayBackgroundColor: Colors.primary500,
+                selectedDayTextColor: Colors.white,
+                todayTextColor: Colors.primary500,
+                dayTextColor: Colors.gray900,
+                textDisabledColor: Colors.gray300,
+                dotColor: Colors.primary500,
+                selectedDotColor: Colors.white,
+                arrowColor: Colors.primary500,
+                monthTextColor: Colors.gray900,
+                indicatorColor: Colors.primary500,
+                textDayFontSize: 16,
+                textMonthFontSize: 18,
+                textDayHeaderFontSize: 14,
+              }}
+              style={styles.calendar}
+            />
           </Card>
+        </Animated.View>
 
-          {/* Stats Overview */}
-          <View style={styles.statsContainer}>
-            <Surface
-              style={[styles.statCard, { backgroundColor: "#E8F5E8" }]}
-              elevation={4}
-            >
-              <IconButton icon="check-circle" iconColor="#4CAF50" size={24} />
-              <Text variant="bodySmall" style={styles.statLabel}>
-                Safe Items
-              </Text>
-              <Text
-                variant="titleLarge"
-                style={[styles.statValue, { color: "#4CAF50" }]}
-              >
-                {expiryDates.filter((d) => d.daysUntilExpiry > 7).length}
-              </Text>
-            </Surface>
+        {/* Legend */}
+        <Animated.View
+          style={[
+            styles.legend,
+            {
+              opacity: fadeAnim,
+            },
+          ]}
+        >
+          <View style={styles.legendItem}>
+            <View
+              style={[styles.legendDot, { backgroundColor: Colors.success }]}
+            />
+            <Text style={styles.legendText}>Fresh</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View
+              style={[styles.legendDot, { backgroundColor: Colors.warning }]}
+            />
+            <Text style={styles.legendText}>Expiring Soon</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View
+              style={[styles.legendDot, { backgroundColor: Colors.error }]}
+            />
+            <Text style={styles.legendText}>Expired</Text>
+          </View>
+        </Animated.View>
 
-            <Surface
-              style={[styles.statCard, { backgroundColor: "#FFF3E0" }]}
-              elevation={4}
-            >
-              <IconButton icon="alert" iconColor="#FF9800" size={24} />
-              <Text variant="bodySmall" style={styles.statLabel}>
-                Warning
+        {/* Selected Date Items */}
+        <Animated.View
+          style={[
+            styles.itemsSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideUpAnim }],
+            },
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {formatSelectedDate(selectedDate)}
+            </Text>
+            <View style={styles.itemCount}>
+              <Text style={styles.itemCountText}>
+                {itemsForSelectedDate.length} items
               </Text>
-              <Text
-                variant="titleLarge"
-                style={[styles.statValue, { color: "#FF9800" }]}
-              >
-                {upcomingExpiries.length}
-              </Text>
-            </Surface>
-
-            <Surface
-              style={[styles.statCard, { backgroundColor: "#FFEBEE" }]}
-              elevation={4}
-            >
-              <IconButton icon="close-circle" iconColor="#F44336" size={24} />
-              <Text variant="bodySmall" style={styles.statLabel}>
-                Expired
-              </Text>
-              <Text
-                variant="titleLarge"
-                style={[styles.statValue, { color: "#F44336" }]}
-              >
-                {expiredItems.length}
-              </Text>
-            </Surface>
+            </View>
           </View>
 
-          {/* Upcoming Expiries */}
-          {upcomingExpiries.length > 0 && (
-            <Card style={styles.sectionCard} elevation={5}>
-              <Card.Content style={styles.sectionContent}>
-                <View style={styles.sectionHeader}>
-                  <IconButton
-                    icon="clock-alert"
-                    iconColor={theme.colors.primary}
-                    size={28}
-                  />
-                  <Text variant="titleLarge" style={styles.sectionTitle}>
-                    Expiring Soon
-                  </Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.horizontalScroll}
-                >
-                  {upcomingExpiries.map((item, index) => {
-                    const [startColor, endColor] = getGradientColors(
-                      item.daysUntilExpiry
-                    );
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        onPress={() => {
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light
-                          );
-                          router.push(`/product-detail?barcode=${item.id}`);
-                        }}
-                        style={[
-                          styles.upcomingItem,
-                          { marginLeft: index === 0 ? 0 : 12 },
-                        ]}
-                      >
-                        <LinearGradient
-                          colors={[startColor, endColor]}
-                          style={styles.upcomingGradient}
-                        >
-                          <View style={styles.upcomingContent}>
-                            <IconButton
-                              icon={getCategoryIcon(item.category)}
-                              iconColor="#fff"
-                              size={32}
-                              style={styles.upcomingIcon}
-                            />
-                            <Text
-                              variant="bodyMedium"
-                              style={styles.upcomingName}
-                              numberOfLines={2}
-                            >
-                              {item.name}
-                            </Text>
-                            <View style={styles.upcomingBadge}>
-                              <Text
-                                variant="bodySmall"
-                                style={styles.upcomingDays}
-                              >
-                                {getExpiryStatus(item.daysUntilExpiry)}
-                              </Text>
-                            </View>
-                          </View>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Selected Date Items */}
-          {filteredDates.length > 0 && (
-            <Card style={styles.sectionCard} elevation={5}>
-              <Card.Content style={styles.sectionContent}>
-                <View style={styles.sectionHeader}>
-                  <IconButton
-                    icon="calendar-today"
-                    iconColor={theme.colors.primary}
-                    size={28}
-                  />
-                  <Text variant="titleLarge" style={styles.sectionTitle}>
-                    {new Date(selectedDate).toLocaleDateString(undefined, {
-                      weekday: "long",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </Text>
-                </View>
-
-                {filteredDates.map((item) => {
-                  const [startColor, endColor] = getGradientColors(
-                    item.daysUntilExpiry
-                  );
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.push(`/product-detail?barcode=${item.id}`);
-                      }}
-                      style={styles.dateItem}
-                    >
-                      <Surface style={styles.dateItemSurface} elevation={2}>
-                        <LinearGradient
-                          colors={[startColor + "20", endColor + "10"]}
-                          style={styles.dateItemGradient}
-                        >
-                          <View style={styles.dateItemContent}>
-                            <View style={styles.dateItemLeft}>
-                              <IconButton
-                                icon={getCategoryIcon(item.category)}
-                                iconColor={startColor}
-                                size={24}
-                                style={styles.dateItemIcon}
-                              />
-                              <View style={styles.dateItemInfo}>
-                                <Text
-                                  variant="bodyLarge"
-                                  style={styles.dateItemName}
-                                >
-                                  {item.name}
-                                </Text>
-                                <Text
-                                  variant="bodySmall"
-                                  style={styles.dateItemCategory}
-                                >
-                                  {item.category} • Qty: {item.quantity}
-                                </Text>
-                              </View>
-                            </View>
-                            <Chip
-                              style={[
-                                styles.dateItemChip,
-                                { backgroundColor: startColor },
-                              ]}
-                              textStyle={styles.dateItemChipText}
-                            >
-                              {getExpiryStatus(item.daysUntilExpiry)}
-                            </Chip>
-                          </View>
-                        </LinearGradient>
-                      </Surface>
-                    </TouchableOpacity>
-                  );
-                })}
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Empty State */}
-          {expiryDates.length === 0 && (
-            <Card style={styles.emptyCard} elevation={4}>
-              <Card.Content style={styles.emptyContent}>
-                <IconButton
-                  icon="calendar-blank"
-                  iconColor={theme.colors.outline}
-                  size={64}
-                />
-                <Text variant="headlineSmall" style={styles.emptyTitle}>
-                  No Items Yet
-                </Text>
-                <Text variant="bodyMedium" style={styles.emptySubtitle}>
-                  Start scanning products to track their expiry dates
-                </Text>
-              </Card.Content>
-            </Card>
+          {itemsForSelectedDate.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons
+                name="calendar-check"
+                size={48}
+                color={Colors.gray400}
+              />
+              <Text style={styles.emptyTitle}>No items for this date</Text>
+              <Text style={styles.emptySubtitle}>
+                Select a date with dots to see expiring items
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={itemsForSelectedDate}
+              renderItem={renderFoodItem}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.itemsList}
+              style={styles.flatList}
+            />
           )}
         </Animated.View>
-      </ScrollView>
-    </View>
+      </View>
+    </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: Colors.background,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+
+  header: {
+    paddingTop: SafeArea.top + Spacing.lg,
+    paddingHorizontal: SafeArea.horizontal,
+    paddingBottom: Spacing.lg,
   },
-  loadingContent: {
-    alignItems: "center",
-  },
-  loadingText: {
-    color: "#fff",
-    marginTop: 16,
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  headerGradient: {
-    paddingTop: 60,
-    paddingBottom: 20,
-  },
-  headerSurface: {
-    backgroundColor: "transparent",
-    paddingHorizontal: 20,
-  },
+
   headerTitle: {
-    color: "#fff",
+    fontSize: 28,
     fontWeight: "bold",
-    textAlign: "center",
+    color: Colors.gray900,
+    marginBottom: Spacing.xs,
   },
+
   headerSubtitle: {
-    color: "rgba(255, 255, 255, 0.8)",
-    textAlign: "center",
-    marginTop: 4,
+    fontSize: 16,
+    color: Colors.gray600,
   },
-  scrollView: {
-    flex: 1,
+
+  calendarSection: {
+    paddingHorizontal: SafeArea.horizontal,
+    marginBottom: Spacing.sm,
   },
-  content: {
-    padding: 16,
-    paddingTop: 8,
-  },
+
   calendarCard: {
-    borderRadius: 24,
-    marginBottom: 20,
-    backgroundColor: "#fff",
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
+    ...Shadows.md,
   },
-  calendarContent: {
-    padding: 8,
-  },
+
   calendar: {
     borderRadius: 16,
+    paddingBottom: Spacing.md,
   },
-  statsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-    gap: 12,
-  },
-  statCard: {
+
+  itemsSection: {
     flex: 1,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-    minHeight: 100,
-    justifyContent: "center",
+    paddingHorizontal: SafeArea.horizontal,
+    marginBottom: 0, // Remove bottom margin to give more space
   },
-  statLabel: {
-    color: "#666",
-    marginTop: 4,
-    fontWeight: "500",
-  },
-  statValue: {
-    fontWeight: "bold",
-    marginTop: 4,
-  },
-  sectionCard: {
-    borderRadius: 20,
-    marginBottom: 16,
-    backgroundColor: "#fff",
-  },
-  sectionContent: {
-    padding: 20,
-  },
+
   sectionHeader: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontWeight: "bold",
-    color: "#1a1a1a",
-    marginLeft: 8,
-  },
-  horizontalScroll: {
-    paddingVertical: 8,
-  },
-  upcomingItem: {
-    width: 160,
-    height: 180,
-  },
-  upcomingGradient: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  upcomingContent: {
-    flex: 1,
-    padding: 16,
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
   },
-  upcomingIcon: {
-    margin: 0,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-  },
-  upcomingName: {
-    color: "#fff",
-    textAlign: "center",
+
+  sectionTitle: {
+    fontSize: 20,
     fontWeight: "600",
-    flex: 1,
-    marginVertical: 8,
+    color: Colors.gray900,
   },
-  upcomingBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+
+  itemCount: {
+    backgroundColor: Colors.primary50,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
     borderRadius: 12,
   },
-  upcomingDays: {
-    color: "#333",
-    fontWeight: "600",
-    fontSize: 12,
+
+  itemCountText: {
+    fontSize: 14,
+    color: Colors.primary500,
+    fontWeight: "500",
   },
-  dateItem: {
-    marginBottom: 12,
-  },
-  dateItemSurface: {
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  dateItemGradient: {
-    padding: 1,
-  },
-  dateItemContent: {
-    flexDirection: "row",
+
+  emptyState: {
     alignItems: "center",
+    paddingVertical: Spacing["3xl"],
+  },
+
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.gray700,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+
+  emptySubtitle: {
+    fontSize: 14,
+    color: Colors.gray500,
+    textAlign: "center",
+  },
+
+  itemsList: {
+    paddingBottom: 60, // Space for absolute positioned legend
+  },
+
+  flatList: {
+    flex: 1,
+    maxHeight: 500, // Increased height for more visible items
+  },
+
+  itemCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    marginBottom: Spacing.md,
+    ...Shadows.sm,
+  },
+
+  itemContent: {
+    padding: Spacing.lg,
+  },
+
+  itemHeader: {
+    flexDirection: "row",
     justifyContent: "space-between",
-    padding: 16,
-    backgroundColor: "#fff",
-    borderRadius: 15,
+    alignItems: "center",
+    marginBottom: Spacing.sm,
   },
-  dateItemLeft: {
+
+  itemInfo: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+  },
+
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+
+  itemDetails: {
     flex: 1,
   },
-  dateItemIcon: {
-    margin: 0,
-    marginRight: 12,
-  },
-  dateItemInfo: {
-    flex: 1,
-  },
-  dateItemName: {
+
+  itemName: {
+    fontSize: 16,
     fontWeight: "600",
-    color: "#1a1a1a",
+    color: Colors.gray900,
+    marginBottom: 2,
   },
-  dateItemCategory: {
-    color: "#666",
-    marginTop: 2,
+
+  itemCategory: {
+    fontSize: 13,
+    color: Colors.gray600,
     textTransform: "capitalize",
   },
-  dateItemChip: {
-    borderRadius: 20,
+
+  statusInfo: {
+    alignItems: "flex-end",
   },
-  dateItemChipText: {
-    color: "#fff",
-    fontWeight: "600",
+
+  statusChip: {
+    height: 28,
+  },
+
+  statusText: {
     fontSize: 12,
+    fontWeight: "500",
+    textTransform: "capitalize",
   },
-  emptyCard: {
-    borderRadius: 20,
-    marginVertical: 40,
+
+  statusDescription: {
+    fontSize: 14,
+    color: Colors.gray600,
+    fontStyle: "italic",
   },
-  emptyContent: {
+
+  legend: {
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingHorizontal: SafeArea.horizontal,
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.gray50,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: Colors.gray200,
+    borderBottomColor: Colors.gray200,
+  },
+
+  legendItem: {
+    flexDirection: "row",
     alignItems: "center",
-    padding: 40,
+    marginHorizontal: Spacing.md,
   },
-  emptyTitle: {
-    color: "#666",
-    marginTop: 16,
-    fontWeight: "600",
+
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: Spacing.xs,
   },
-  emptySubtitle: {
-    color: "#999",
+
+  legendText: {
+    fontSize: 12,
+    color: Colors.gray700,
+  },
+
+  loadingText: {
+    ...CommonStyles.body,
+    marginTop: Spacing.md,
     textAlign: "center",
-    marginTop: 8,
   },
 });

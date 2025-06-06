@@ -1,597 +1,712 @@
-import { CameraView } from "expo-camera";
-import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { Alert, Animated, Dimensions, StyleSheet, View } from "react-native";
-import {
-  ActivityIndicator,
-  Button,
-  IconButton,
-  Surface,
-  Text,
-  useTheme,
-  FAB,
-} from "react-native-paper";
-import { auth, database } from "../firebaseConfig";
-import { getExpiryDate } from "../utils/expiryDate";
-import { ref, set } from "firebase/database";
-import { Camera } from "react-native-vision-camera";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
+import { useFocusEffect, useRouter } from "expo-router";
+import { get, ref, set } from "firebase/database";
+import { useCallback, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Dimensions,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
+import { SafeAreaView } from "react-native-safe-area-context";
+import AppLayout from "../components/AppLayout";
+import { Colors, SafeArea, Spacing } from "../constants/designSystem";
+import { auth, database } from "../firebaseConfig";
+import { AdvancedExpiryCalculator } from "../services/advancedExpiryCalculator";
 
-interface ProductInfo {
-  product_name: string;
-  brands?: string;
-  image_url?: string;
-  categories_tags?: string[];
-  nutriments?: {
-    energy_100g?: number;
-    carbohydrates_100g?: number;
-    proteins_100g?: number;
-    fat_100g?: number;
-    serving_size?: string;
-  };
-  ingredients_text?: string;
-  nutritionInfo?: {
-    caloriesPerServing?: number;
-    servingSize?: string;
-    carbs?: {
-      amount: number;
-      dailyValue: number;
-    };
-    protein?: {
-      amount: number;
-      dailyValue: number;
-    };
-    fat?: {
-      amount: number;
-      dailyValue: number;
-    };
-  };
-  ingredients?: string[];
-}
+const { width, height } = Dimensions.get("window");
 
 export default function ScanScreen() {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [productInfo, setProductInfo] = useState<any>(null);
   const router = useRouter();
-  const theme = useTheme();
-  const [loading, setLoading] = useState(false);
-  const [scanning, setScanning] = useState(true);
-  const [isRecipeMode, setIsRecipeMode] = useState(false);
-  const [isReceiptMode, setIsReceiptMode] = useState(false);
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [scanLineAnim] = useState(new Animated.Value(0));
-  const { width } = Dimensions.get("window");
 
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
+  const successAnim = useRef(new Animated.Value(0)).current;
 
-    if (scanning) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(scanLineAnim, {
+  useFocusEffect(
+    useCallback(() => {
+      if (permission?.granted) {
+        // Start animations
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 2000,
+            duration: 800,
             useNativeDriver: true,
           }),
-          Animated.timing(scanLineAnim, {
-            toValue: 0,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    }
-  }, [scanning]);
-
-  const fetchProductInfo = async (
-    barcode: string
-  ): Promise<ProductInfo | null> => {
-    try {
-      console.log(`[Scan] Fetching product info for barcode: ${barcode}`);
-      const response = await fetch(
-        `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
-      );
-      const data = await response.json();
-
-      if (data.status === 1 && data.product) {
-        console.log("[Scan] Product found:", {
-          name: data.product.product_name,
-          brand: data.product.brands,
-          category: data.product.categories_tags?.[0],
-          image: data.product.image_url,
-          nutrition: data.product.nutriments,
-          ingredients: data.product.ingredients_text,
-        });
-
-        // Process nutritional information
-        const nutritionInfo = data.product.nutriments
-          ? {
-              caloriesPerServing: data.product.nutriments.energy_100g,
-              servingSize: data.product.nutriments.serving_size || "100g",
-              carbs: {
-                amount: data.product.nutriments.carbohydrates_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.carbohydrates_100g || 0) / 275) *
-                    100
-                ), // Based on 275g daily value
-              },
-              protein: {
-                amount: data.product.nutriments.proteins_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.proteins_100g || 0) / 50) * 100
-                ), // Based on 50g daily value
-              },
-              fat: {
-                amount: data.product.nutriments.fat_100g,
-                dailyValue: Math.round(
-                  ((data.product.nutriments.fat_100g || 0) / 65) * 100
-                ), // Based on 65g daily value
-              },
-            }
-          : undefined;
-
-        // Process ingredients
-        const ingredients = data.product.ingredients_text
-          ? data.product.ingredients_text
-              .split(",")
-              .map((i: string) => i.trim())
-          : undefined;
-
-        return {
-          ...data.product,
-          nutritionInfo,
-          ingredients,
-        };
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(scanLineAnim, {
+                toValue: 1,
+                duration: 2000,
+                useNativeDriver: true,
+              }),
+              Animated.timing(scanLineAnim, {
+                toValue: 0,
+                duration: 2000,
+                useNativeDriver: true,
+              }),
+            ])
+          ),
+        ]).start();
       }
-      console.log("[Scan] Product not found in Open Food Facts");
-      return null;
-    } catch (error) {
-      console.error("[Scan] Error fetching product info:", error);
-      return null;
-    }
-  };
+
+      return () => {
+        setScanned(false);
+        setProductInfo(null);
+        fadeAnim.setValue(0);
+        successAnim.setValue(0);
+      };
+    }, [permission])
+  );
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    try {
-      setScanning(false);
-      setLoading(true);
+    if (scanned || processing) return;
 
+    setScanned(true);
+    setProcessing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Stop scan line animation and start pulse
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    try {
       const currentUser = auth.currentUser;
       if (!currentUser?.email) {
         Alert.alert("Error", "You must be logged in to scan products");
+        resetScan();
         return;
       }
 
-      const productInfo = await fetchProductInfo(data);
-      if (!productInfo) {
-        Alert.alert("Product Not Found", "Would you like to add it manually?", [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => setScanning(true),
-          },
-          {
-            text: "Add Manually",
-            onPress: () => router.push("/manual-entry"),
-          },
-        ]);
+      // First check if product already exists
+      const encodedEmail = encodeURIComponent(
+        currentUser.email.replace(/\./g, ",")
+      );
+      const productRef = ref(
+        database,
+        `users/${encodedEmail}/products/${data}`
+      );
+      const existingProduct = await get(productRef);
+
+      if (existingProduct.exists()) {
+        Alert.alert(
+          "Product Already Added",
+          "This product is already in your pantry. Would you like to view it?",
+          [
+            {
+              text: "Cancel",
+              onPress: resetScan,
+              style: "cancel",
+            },
+            {
+              text: "View Product",
+              onPress: () => {
+                router.push(`/product-detail?barcode=${data}`);
+              },
+            },
+          ]
+        );
         return;
       }
 
-      if (isRecipeMode) {
-        // Handle recipe scanning
-        const predictedExpiryDate = getExpiryDate(productInfo);
-        const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
-        
-        // Add each ingredient as a separate product
-        if (productInfo.ingredients) {
-          for (const ingredient of productInfo.ingredients) {
-            const ingredientRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${ingredient}`);
-            await set(ingredientRef, {
-              name: ingredient,
-              expiryDate: predictedExpiryDate.toISOString(),
-              category: productInfo.categories_tags?.[0] || "other",
-              quantity: 1,
-              imageUrl: productInfo.image_url,
-            });
+      // Try to get product info from barcode API
+      let productName = "Unknown Product";
+      let category = "other";
+
+      try {
+        const response = await fetch(
+          `https://world.openfoodfacts.org/api/v0/product/${data}.json`
+        );
+        const productData = await response.json();
+
+        if (productData.status === 1 && productData.product) {
+          const product = productData.product;
+          productName = product.product_name || "Unknown Product";
+
+          // Determine category from OpenFoodFacts categories
+          if (product.categories) {
+            const categories = product.categories.toLowerCase();
+            if (
+              categories.includes("dairy") ||
+              categories.includes("milk") ||
+              categories.includes("cheese") ||
+              categories.includes("yogurt")
+            ) {
+              category = "dairy";
+            } else if (
+              categories.includes("meat") ||
+              categories.includes("poultry") ||
+              categories.includes("fish")
+            ) {
+              category = "meat";
+            } else if (
+              categories.includes("fruit") ||
+              categories.includes("vegetable")
+            ) {
+              category = "produce";
+            } else if (
+              categories.includes("bread") ||
+              categories.includes("bakery")
+            ) {
+              category = "bakery";
+            } else if (
+              categories.includes("snack") ||
+              categories.includes("chocolate") ||
+              categories.includes("candy")
+            ) {
+              category = "snacks";
+            } else if (
+              categories.includes("beverage") ||
+              categories.includes("drink")
+            ) {
+              category = "beverages";
+            } else if (
+              categories.includes("canned") ||
+              categories.includes("preserved")
+            ) {
+              category = "canned";
+            } else if (categories.includes("frozen")) {
+              category = "frozen";
+            }
           }
         }
-        
-        Alert.alert("Success", "Recipe ingredients have been added to your inventory!");
-        router.push("/");
-      } else {
-        // Regular product scanning
-        const predictedExpiryDate = getExpiryDate(productInfo);
-        router.push({
-          pathname: "/product",
-          params: {
-            barcode: data,
-            name: productInfo.product_name,
-            brand: productInfo.brands,
-            imageUrl: productInfo.image_url,
-            category: productInfo.categories_tags?.[0],
-            nutritionInfo: JSON.stringify(productInfo.nutritionInfo),
-            ingredients: JSON.stringify(productInfo.ingredients),
-            expiryDate: predictedExpiryDate.toISOString(),
-          },
-        });
-      }
-    } catch (error) {
-      console.error("Error handling barcode:", error);
-      Alert.alert("Error", "Failed to process barcode. Please try again.");
-      setScanning(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleReceiptScan = async () => {
-    try {
-      setLoading(true);
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
-      });
-
-      if (!result.canceled) {
-        const imageUri = result.assets[0].uri;
-        await processReceiptImage(imageUri);
-      }
-    } catch (error) {
-      console.error("Error scanning receipt:", error);
-      Alert.alert("Error", "Failed to process receipt. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const processReceiptImage = async (imageUri: string) => {
-    try {
-      // Convert image to base64
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Here you would typically send the image to an OCR service
-      // For now, we'll simulate OCR with a mock response
-      const mockOcrResult = {
-        text: "MILK 2% 1GAL\nBREAD WHITE LOAF\nEGGS DOZEN\nBANANAS 2LB",
-        confidence: 0.95,
-      };
-
-      // Parse the OCR result
-      const products = parseReceiptText(mockOcrResult.text);
-      
-      // Add products to database
-      const currentUser = auth.currentUser;
-      if (!currentUser?.email) {
-        Alert.alert("Error", "You must be logged in to scan receipts");
-        return;
+      } catch (apiError) {
+        console.log("API fetch failed, using default values");
       }
 
-      const encodedEmail = encodeURIComponent(currentUser.email.replace(/\./g, ","));
-      
-      for (const product of products) {
-        const productRef = ref(database, `users/${encodedEmail}/products/${Date.now()}-${product.name}`);
-        await set(productRef, {
-          name: product.name,
-          expiryDate: product.expiryDate.toISOString(),
-          category: product.category,
-          quantity: product.quantity,
-        });
-      }
+      // Calculate expiry date using advanced algorithm
+      const expiryResult = await AdvancedExpiryCalculator.calculateExpiry(
+        productName
+      );
+      const purchaseDate = new Date().toISOString().split("T")[0];
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + expiryResult.shelfLifeDays);
 
-      Alert.alert("Success", "Receipt items have been added to your inventory!");
-      router.push("/");
-    } catch (error) {
-      console.error("Error processing receipt:", error);
-      Alert.alert("Error", "Failed to process receipt. Please try again.");
-    }
-  };
-
-  const parseReceiptText = (text: string) => {
-    // Split text into lines and filter out empty lines
-    const lines = text.split('\n').filter(line => line.trim());
-    
-    return lines.map(line => {
-      // Simple parsing logic - in a real app this would be more sophisticated
-      const parts = line.split(' ');
-      const quantity = parseInt(parts[0]) || 1;
-      const name = parts.slice(1).join(' ').toLowerCase();
-      
-      // Predict expiry date based on product name
-      const expiryDate = getExpiryDate({ product_name: name });
-      
-      // Determine category based on product name
-      const category = determineCategory(name);
-      
-      return {
-        name,
-        quantity,
-        expiryDate,
+      const productInfo = {
+        name: productName,
+        purchaseDate,
+        expiryDate: expiryDate.toISOString().split("T")[0],
+        confidence: expiryResult.confidence,
         category,
+        quantity: 1,
+        method: expiryResult.method,
+        barcode: data,
+        addedAt: new Date().toISOString(),
       };
-    });
-  };
 
-  const determineCategory = (name: string) => {
-    // Simple category determination - in a real app this would be more sophisticated
-    const categories = {
-      dairy: ['milk', 'cheese', 'yogurt', 'cream'],
-      bakery: ['bread', 'bun', 'roll', 'bagel'],
-      produce: ['banana', 'apple', 'orange', 'lettuce'],
-      meat: ['beef', 'chicken', 'pork', 'turkey'],
-      eggs: ['egg'],
-    };
+      // Save to Firebase
+      await set(productRef, productInfo);
 
-    for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some(keyword => name.includes(keyword))) {
-        return category;
-      }
+      setProductInfo(productInfo);
+
+      // Success animation
+      Animated.timing(successAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      setTimeout(() => {
+        router.push(`/product-detail?barcode=${data}`);
+      }, 1500);
+    } catch (error) {
+      console.error("Error saving product:", error);
+      Alert.alert("Error", "Failed to save product. Please try again.", [
+        { text: "OK", onPress: resetScan },
+      ]);
+    } finally {
+      setProcessing(false);
     }
-
-    return 'other';
   };
+
+  const resetScan = () => {
+    setScanned(false);
+    setProcessing(false);
+    setProductInfo(null);
+    successAnim.setValue(0);
+
+    // Restart scan line animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLineAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scanLineAnim, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  if (!permission) {
+    return (
+      <AppLayout>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.centerContent}>
+            <ActivityIndicator size="large" color={Colors.primary500} />
+            <Text style={styles.loadingText}>
+              Loading camera permissions...
+            </Text>
+          </View>
+        </SafeAreaView>
+      </AppLayout>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <AppLayout>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.centerContent}>
+            <MaterialCommunityIcons
+              name="camera-off"
+              size={64}
+              color={Colors.gray400}
+            />
+            <Text style={styles.permissionTitle}>
+              Camera Permission Required
+            </Text>
+            <Text style={styles.permissionText}>
+              Please grant camera permission to scan barcodes
+            </Text>
+            <Button
+              mode="contained"
+              onPress={requestPermission}
+              style={styles.permissionButton}
+            >
+              Grant Permission
+            </Button>
+          </View>
+        </SafeAreaView>
+      </AppLayout>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      {scanning ? (
-        <CameraView
-          style={styles.camera}
-          barcodeScannerSettings={{
-            barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
-          }}
-          onBarcodeScanned={handleBarCodeScanned}
-          facing="back"
+    <AppLayout>
+      <SafeAreaView style={styles.container}>
+        <Animated.View
+          style={[
+            styles.cameraContainer,
+            {
+              opacity: fadeAnim,
+            },
+          ]}
         >
-          <LinearGradient
-            colors={["rgba(0,0,0,0.7)", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.7)"]}
-            style={styles.overlay}
+          <CameraView
+            style={styles.camera}
+            barcodeScannerSettings={{
+              barcodeTypes: [
+                "qr",
+                "ean13",
+                "ean8",
+                "upc_a",
+                "upc_e",
+                "code128",
+                "code39",
+              ],
+            }}
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
           >
-            <View style={styles.scanArea}>
-              <View style={styles.scanCorner} />
-              <View style={[styles.scanCorner, styles.topRight]} />
-              <View style={[styles.scanCorner, styles.bottomLeft]} />
-              <View style={[styles.scanCorner, styles.bottomRight]} />
-              <Animated.View
-                style={[
-                  styles.scanLine,
-                  {
-                    transform: [
-                      {
-                        translateY: scanLineAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, 250],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              />
+            <View style={styles.overlay}>
+              {/* Header */}
+              <View style={styles.header}>
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={() => router.back()}
+                >
+                  <MaterialCommunityIcons
+                    name="arrow-left"
+                    size={24}
+                    color={Colors.white}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Scan Barcode</Text>
+                <View style={styles.placeholder} />
+              </View>
+
+              {/* Scanning Frame */}
+              <View style={styles.scanArea}>
+                <Animated.View
+                  style={[
+                    styles.scanFrame,
+                    {
+                      transform: [{ scale: pulseAnim }],
+                    },
+                  ]}
+                >
+                  <View style={styles.cornerTopLeft} />
+                  <View style={styles.cornerTopRight} />
+                  <View style={styles.cornerBottomLeft} />
+                  <View style={styles.cornerBottomRight} />
+
+                  {/* Animated scan line */}
+                  {!scanned && (
+                    <Animated.View
+                      style={[
+                        styles.scanLine,
+                        {
+                          transform: [
+                            {
+                              translateY: scanLineAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 200],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    />
+                  )}
+
+                  {/* Success indicator */}
+                  {productInfo && (
+                    <Animated.View
+                      style={[
+                        styles.successIndicator,
+                        {
+                          opacity: successAnim,
+                          transform: [{ scale: successAnim }],
+                        },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="check-circle"
+                        size={60}
+                        color={Colors.success}
+                      />
+                    </Animated.View>
+                  )}
+                </Animated.View>
+              </View>
+
+              {/* Instructions */}
+              <View style={styles.instructions}>
+                {processing ? (
+                  <View style={styles.processingContainer}>
+                    <ActivityIndicator size="large" color={Colors.white} />
+                    <Text style={styles.processingText}>Processing...</Text>
+                  </View>
+                ) : productInfo ? (
+                  <View style={styles.successContainer}>
+                    <Text style={styles.successTitle}>Product Added!</Text>
+                    <Text style={styles.successSubtitle}>
+                      {productInfo.name}
+                    </Text>
+                    <Text style={styles.successDetails}>
+                      Expires:{" "}
+                      {new Date(productInfo.expiryDate).toLocaleDateString()}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.instructionContainer}>
+                    <Text style={styles.instructionTitle}>
+                      Position barcode within the frame
+                    </Text>
+                    <Text style={styles.instructionSubtitle}>
+                      The barcode will be scanned automatically
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Reset Button */}
+              {scanned && !processing && (
+                <View style={styles.actionContainer}>
+                  <TouchableOpacity
+                    style={styles.resetButton}
+                    onPress={resetScan}
+                  >
+                    <MaterialCommunityIcons
+                      name="camera-retake"
+                      size={24}
+                      color={Colors.white}
+                    />
+                    <Text style={styles.resetButtonText}>Scan Again</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-            <Surface style={styles.instructionContainer} elevation={4}>
-              <IconButton
-                icon="barcode-scan"
-                size={24}
-                iconColor={theme.colors.primary}
-                style={styles.instructionIcon}
-              />
-              <Text style={styles.scanText}>
-                {isRecipeMode ? "Scan recipe ingredients" : "Position barcode within frame"}
-              </Text>
-            </Surface>
-          </LinearGradient>
-        </CameraView>
-      ) : (
-        <Animated.View style={{ opacity: fadeAnim, flex: 1 }}>
-          <LinearGradient
-            colors={["#f6f7f9", "#ffffff"]}
-            style={styles.buttonContainer}
-          >
-            <Surface style={styles.resultCard} elevation={4}>
-              <IconButton
-                icon="check-circle"
-                size={48}
-                iconColor={theme.colors.primary}
-                style={styles.resultIcon}
-              />
-              <Text style={styles.scanAgainText}>
-                Ready to scan another product?
-              </Text>
-              <Button
-                mode="contained"
-                onPress={() => setScanning(true)}
-                style={styles.button}
-                icon="barcode-scan"
-                contentStyle={styles.buttonContent}
-              >
-                Scan Again
-              </Button>
-            </Surface>
-          </LinearGradient>
+          </CameraView>
         </Animated.View>
-      )}
-      {loading && (
-        <Surface style={styles.loadingContainer} elevation={4}>
-          <LinearGradient
-            colors={["rgba(0,0,0,0.9)", "rgba(0,0,0,0.8)"]}
-            style={styles.loadingGradient}
-          >
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Processing...</Text>
-          </LinearGradient>
-        </Surface>
-      )}
-      <View style={styles.fabContainer}>
-        <FAB
-          icon={isRecipeMode ? "food" : "barcode-scan"}
-          style={[styles.fab, styles.fabLeft]}
-          onPress={() => setIsRecipeMode(!isRecipeMode)}
-          label={isRecipeMode ? "Recipe Mode" : "Product Mode"}
-        />
-        <FAB
-          icon="receipt"
-          style={[styles.fab, styles.fabRight]}
-          onPress={handleReceiptScan}
-          label="Scan Receipt"
-        />
-      </View>
-    </View>
+      </SafeAreaView>
+    </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: Colors.black,
   },
+
+  centerContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+  },
+
+  loadingText: {
+    fontSize: 16,
+    color: Colors.gray600,
+    marginTop: Spacing.md,
+    textAlign: "center",
+  },
+
+  permissionTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: Colors.gray900,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+
+  permissionText: {
+    fontSize: 16,
+    color: Colors.gray600,
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+    lineHeight: 24,
+  },
+
+  permissionButton: {
+    borderRadius: 12,
+  },
+
+  cameraContainer: {
+    flex: 1,
+  },
+
   camera: {
     flex: 1,
   },
+
   overlay: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
-  scanArea: {
-    width: 250,
-    height: 250,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: "transparent",
-    position: "relative",
-  },
-  scanCorner: {
-    position: "absolute",
-    width: 24,
-    height: 24,
-    borderColor: "#fff",
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    top: -2,
-    left: -2,
-  },
-  topRight: {
-    right: -2,
-    left: undefined,
-    borderLeftWidth: 0,
-    borderRightWidth: 4,
-  },
-  bottomLeft: {
-    top: undefined,
-    bottom: -2,
-    borderTopWidth: 0,
-    borderBottomWidth: 4,
-  },
-  bottomRight: {
-    top: undefined,
-    left: undefined,
-    right: -2,
-    bottom: -2,
-    borderTopWidth: 0,
-    borderLeftWidth: 0,
-    borderRightWidth: 4,
-    borderBottomWidth: 4,
-  },
-  scanLine: {
-    position: "absolute",
-    width: "100%",
-    height: 2,
-    backgroundColor: "#6200ee",
-    opacity: 0.8,
-  },
-  instructionContainer: {
+
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.9)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
-    marginTop: 32,
+    justifyContent: "space-between",
+    paddingTop: SafeArea.top,
+    paddingHorizontal: SafeArea.horizontal,
+    paddingBottom: Spacing.lg,
   },
-  instructionIcon: {
-    margin: 0,
-    marginRight: 8,
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  scanText: {
-    color: "#1a1a1a",
-    fontSize: 16,
-    fontWeight: "500",
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.white,
   },
-  buttonContainer: {
+
+  placeholder: {
+    width: 40,
+  },
+
+  scanArea: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
   },
-  resultCard: {
-    width: "100%",
-    padding: 32,
-    borderRadius: 24,
-    alignItems: "center",
-    backgroundColor: "#fff",
+
+  scanFrame: {
+    width: 250,
+    height: 250,
+    position: "relative",
   },
-  resultIcon: {
-    marginBottom: 16,
-  },
-  scanAgainText: {
-    fontSize: 20,
-    marginBottom: 24,
-    textAlign: "center",
-    color: "#1a1a1a",
-    fontWeight: "500",
-  },
-  button: {
-    width: "100%",
-    borderRadius: 16,
-  },
-  buttonContent: {
-    paddingVertical: 8,
-  },
-  loadingContainer: {
+
+  cornerTopLeft: {
     position: "absolute",
     top: 0,
     left: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: Colors.primary500,
+    borderTopLeftRadius: 8,
+  },
+
+  cornerTopRight: {
+    position: "absolute",
+    top: 0,
     right: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderColor: Colors.primary500,
+    borderTopRightRadius: 8,
+  },
+
+  cornerBottomLeft: {
+    position: "absolute",
     bottom: 0,
-    justifyContent: "center",
+    left: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: Colors.primary500,
+    borderBottomLeftRadius: 8,
+  },
+
+  cornerBottomRight: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderColor: Colors.primary500,
+    borderBottomRightRadius: 8,
+  },
+
+  scanLine: {
+    position: "absolute",
+    top: 0,
+    left: 20,
+    right: 20,
+    height: 2,
+    backgroundColor: Colors.primary500,
+    shadowColor: Colors.primary500,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+  },
+
+  successIndicator: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginTop: -30,
+    marginLeft: -30,
+  },
+
+  instructions: {
+    paddingHorizontal: SafeArea.horizontal,
+    paddingVertical: Spacing.xl,
+    minHeight: 100,
+  },
+
+  processingContainer: {
     alignItems: "center",
   },
-  loadingGradient: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    color: "#fff",
-    marginTop: 16,
-    fontSize: 16,
+
+  processingText: {
+    fontSize: 18,
+    color: Colors.white,
+    marginTop: Spacing.md,
     fontWeight: "500",
   },
-  fabContainer: {
-    position: 'absolute',
-    bottom: 16,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+
+  successContainer: {
+    alignItems: "center",
   },
-  fab: {
-    margin: 0,
+
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: Colors.white,
+    marginBottom: Spacing.sm,
   },
-  fabLeft: {
-    marginRight: 8,
+
+  successSubtitle: {
+    fontSize: 16,
+    color: Colors.white,
+    opacity: 0.9,
+    marginBottom: Spacing.xs,
   },
-  fabRight: {
-    marginLeft: 8,
+
+  successDetails: {
+    fontSize: 14,
+    color: Colors.white,
+    opacity: 0.7,
+  },
+
+  instructionContainer: {
+    alignItems: "center",
+  },
+
+  instructionTitle: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: Colors.white,
+    textAlign: "center",
+    marginBottom: Spacing.sm,
+  },
+
+  instructionSubtitle: {
+    fontSize: 14,
+    color: Colors.white,
+    opacity: 0.7,
+    textAlign: "center",
+  },
+
+  actionContainer: {
+    paddingHorizontal: SafeArea.horizontal,
+    paddingBottom: SafeArea.bottom + Spacing.lg,
+    alignItems: "center",
+  },
+
+  resetButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+
+  resetButtonText: {
+    fontSize: 16,
+    color: Colors.white,
+    fontWeight: "500",
+    marginLeft: Spacing.sm,
   },
 });
